@@ -1,0 +1,2473 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>IBM食字路口：即時看板</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // IBM 設計系統（Carbon）色票：以 Tailwind 的色階名稱覆寫，畫面上既有的 class 會直接換成 IBM 配色
+    // 灰階為調整後的 AA 對比版本（次要文字 #6f6f6f 在白底的對比約 5:1）
+    const IBM = {
+      blue: { 50: '#edf5ff', 100: '#d0e2ff', 200: '#a6c8ff', 300: '#78a9ff', 400: '#4589ff', 500: '#0f62fe', 600: '#0f62fe', 700: '#0043ce', 800: '#002d9c', 900: '#001d6c', 950: '#001141' },
+      cyan: { 50: '#edfaff', 100: '#bae6ff', 200: '#82cfff', 300: '#33b1ff', 400: '#1192e8', 500: '#1192e8', 600: '#0072c3', 700: '#00539a', 800: '#003a6d', 900: '#012749', 950: '#001a33' },
+      purple: { 50: '#f6f2ff', 100: '#e8daff', 200: '#d4bbff', 300: '#be95ff', 400: '#a56eff', 500: '#8a3ffc', 600: '#8a3ffc', 700: '#6929c4', 800: '#491d8b', 900: '#31135e', 950: '#1c0f30' },
+      gray: { 50: '#f4f4f4', 100: '#f4f4f4', 200: '#e0e0e0', 300: '#c6c6c6', 400: '#a8a8a8', 500: '#6f6f6f', 600: '#525252', 700: '#393939', 800: '#262626', 900: '#161616', 950: '#000000' },
+      yellow: { 50: '#fcf4d6', 100: '#fcf4d6', 200: '#fddc69', 300: '#f1c21b', 400: '#f1c21b', 500: '#d2a106', 600: '#b28600', 700: '#8e6a00', 800: '#684e00', 900: '#483700', 950: '#2c2100' },
+      green: { 50: '#defbe6', 100: '#a7f0ba', 200: '#6fdc8c', 300: '#42be65', 400: '#24a148', 500: '#198038', 600: '#198038', 700: '#0e6027', 800: '#044317', 900: '#022d0d', 950: '#011a09' },
+      red: { 50: '#fff1f1', 100: '#ffd7d9', 200: '#ffb3b8', 300: '#ff8389', 400: '#fa4d56', 500: '#da1e28', 600: '#da1e28', 700: '#a2191f', 800: '#750e13', 900: '#520408', 950: '#2d0709' }
+    };
+    // Tailwind CDN 載入失敗時（網路不穩、被封鎖）跳過設定，不讓頁面丟出錯誤；App 程式仍可正常運作
+    if (typeof tailwind !== 'undefined') tailwind.config = {
+      theme: {
+        borderRadius: { none: '0', DEFAULT: '0', sm: '0', md: '0', lg: '0', xl: '0', '2xl': '0', '3xl': '0', full: '2px' },
+        extend: {
+          fontFamily: {
+            sans: ['"IBM Plex Sans"', '"Noto Sans TC"', 'sans-serif'],
+            mono: ['"IBM Plex Mono"', '"Noto Sans TC"', 'monospace']
+          },
+          boxShadow: { DEFAULT: 'none', sm: 'none', md: 'none', lg: 'none', xl: 'none', '2xl': 'none' },
+          colors: {
+            'ibm-dark': '#161616', 'ibm-blue': '#0f62fe',
+            orange: IBM.blue, blue: IBM.blue,
+            teal: IBM.cyan, cyan: IBM.cyan, sky: IBM.cyan,
+            purple: IBM.purple, pink: IBM.purple,
+            zinc: IBM.gray, gray: IBM.gray,
+            amber: IBM.yellow, yellow: IBM.yellow,
+            green: IBM.green, red: IBM.red
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'IBM Plex Sans', 'Noto Sans TC', sans-serif; background-color: #f4f4f4; color: #161616; }
+    ::-webkit-scrollbar { width: 0px; background: transparent; }
+    .tier-pick input[value="3"]:checked + span { background-color: #f1c21b; color: #161616; border-color: #f1c21b; }
+    .tier-pick input[value="2"]:checked + span { background-color: #0f62fe; color: #fff; border-color: #0f62fe; }
+    .tier-pick input[value="1"]:checked + span { background-color: #161616; color: #fff; border-color: #161616; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+  </style>
+</head>
+<body class="antialiased text-gray-800 bg-gray-100 flex justify-center min-h-screen">
+
+  <div class="w-full max-w-md bg-white min-h-screen relative flex flex-col">
+
+    <!-- Header (含全域登出按鈕) -->
+    <header class="bg-ibm-dark text-white px-4 py-3 sticky top-0 z-20 flex items-center justify-between border-b-2 border-ibm-blue">
+      <div class="flex items-center gap-2 min-w-0">
+        <i class="fa-solid fa-satellite-dish text-blue-300"></i>
+        <h1 class="text-sm font-semibold tracking-wide truncate"><span class="font-bold text-blue-300">IBM</span>食字路口：即時看板</h1>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <div id="header_status" class="text-xs bg-gray-800 px-2 py-1 flex items-center gap-1.5">
+          <div class="w-2 h-2 bg-green-400 animate-pulse"></div>
+          系統連線中
+        </div>
+        <button id="btn_header_logout" onclick="logout()" class="hidden text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 font-semibold transition flex items-center gap-1">
+          <i class="fa-solid fa-right-from-bracket"></i>登出
+        </button>
+      </div>
+    </header>
+
+    <!-- 全域活動狀態提示列 -->
+    <div id="event_banner" class="bg-gray-100 text-gray-600 text-xs font-bold px-4 py-2 text-center border-b border-gray-200">
+      <i class="fa-solid fa-circle-info mr-1"></i> 登入後顯示活動狀態
+    </div>
+    <div id="mock_banner" class="hidden bg-sky-50 text-sky-800 text-[11px] font-bold px-4 py-1.5 text-center border-b border-sky-200">
+      <i class="fa-solid fa-flask mr-1"></i>單機模擬模式：資料只存在此分頁，重新整理即重置
+    </div>
+
+    <div class="flex-grow flex flex-col relative">
+
+      <!-- ========================================== -->
+      <!-- VIEW 1: LOGIN (代號 + 密碼) -->
+      <!-- ========================================== -->
+      <main id="view-login" class="flex-grow flex flex-col justify-center p-6 space-y-6">
+        <div class="text-center">
+          <i class="fa-solid fa-shield-halved text-6xl text-blue-500 mb-3"></i>
+          <h2 class="text-2xl font-black text-gray-800">登入系統</h2>
+          <!-- 測試帳密只在單機模擬模式顯示 -->
+          <p id="login_hint" class="hidden text-gray-500 text-xs mt-2 leading-relaxed">
+            小隊：<span class="font-mono bg-gray-200 px-1 rounded">T1 / 1111</span>、<span class="font-mono bg-gray-200 px-1 rounded">T2 / 2222</span>、<span class="font-mono bg-gray-200 px-1 rounded">T3 / 3333</span>…<span class="font-mono bg-gray-200 px-1 rounded">T10 / 1010</span>（T4～T9 密碼為 4444～9999）<br>
+            大地關主：<span class="font-mono bg-gray-200 px-1 rounded">M1～M3 / m1～m3</span>｜食物關主：<span class="font-mono bg-gray-200 px-1 rounded">M4～M6 / m4～m6</span><br>
+            管理員：<span class="font-mono bg-gray-200 px-1 rounded">ADMIN / admin</span>
+          </p>
+        </div>
+        <div class="space-y-4">
+          <div>
+            <label for="login_code" class="text-xs font-bold text-gray-600 ml-1">帳號代碼</label>
+            <input type="text" id="login_code" autocomplete="username" autocapitalize="characters" class="w-full text-center text-lg font-bold bg-gray-50 border-2 border-gray-300 text-gray-900 focus:border-blue-500 block p-3.5 uppercase mt-1" placeholder="輸入代碼 (如 T1, M1, ADMIN)">
+          </div>
+          <div>
+            <label for="login_pwd" class="text-xs font-bold text-gray-600 ml-1">登入密碼 (如需重置請洽管理員)</label>
+            <input type="password" id="login_pwd" autocomplete="current-password" class="w-full text-center text-lg font-bold bg-gray-50 border-2 border-gray-300 text-gray-900 focus:border-blue-500 block p-3.5 mt-1" placeholder="輸入密碼">
+          </div>
+          <label for="login_remember" class="flex items-center gap-2 text-xs font-bold text-gray-600 ml-1 cursor-pointer">
+            <input type="checkbox" id="login_remember" checked class="w-4 h-4 rounded border-gray-300 text-blue-600">
+            記住此裝置（重新整理或關閉瀏覽器後免重新登入；共用手機請取消勾選）
+          </label>
+          <button id="btn_login" onclick="handleLogin()" class="w-full text-white bg-blue-600 hover:bg-blue-700 font-bold text-lg px-5 py-4 text-center transition-transform active:scale-95">
+            登入
+          </button>
+        </div>
+        <div id="login_error" class="text-red-500 text-sm text-center hidden font-bold"></div>
+      </main>
+
+      <!-- ========================================== -->
+      <!-- VIEW 2: TEAM DASHBOARD -->
+      <!-- ========================================== -->
+      <main id="view-dashboard" class="hidden flex-grow flex flex-col p-5 space-y-4">
+        <div class="bg-blue-50 p-4 border border-blue-200">
+          <div class="flex justify-between items-start gap-2">
+            <h2 id="dash_team_name" class="text-xl font-black text-blue-800 mb-1">小隊名稱</h2>
+            <span id="dash_arrival_badge" class="shrink-0 text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800">進行中</span>
+          </div>
+          <p class="text-xs text-blue-600 font-bold mb-2"><i class="fa-solid fa-users mr-1"></i>小隊成員</p>
+          <div id="dash_members" class="flex flex-wrap gap-1.5 text-xs text-gray-700"></div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-white p-3.5 border border-gray-200 text-center">
+            <p class="text-xs text-gray-500 font-bold mb-1">目前累計分數</p>
+            <p id="dash_score" class="font-mono text-3xl font-bold text-gray-900">0</p>
+          </div>
+          <div class="bg-white p-3.5 border border-gray-200 text-center">
+            <p class="text-xs text-gray-500 font-bold mb-1">預計折抵時間</p>
+            <p class="font-mono text-3xl font-bold text-blue-600">-<span id="dash_time">0</span>m</p>
+          </div>
+        </div>
+
+        <!-- 闖關進度（固定順序） -->
+        <div class="bg-white p-3.5 border border-gray-200 space-y-2">
+          <div class="flex justify-between text-xs font-bold text-gray-600">
+            <span><i class="fa-solid fa-route mr-1"></i>闖關進度</span>
+            <span id="dash_progress_count">0 / 0</span>
+          </div>
+          <div id="dash_steps" class="grid grid-cols-6 gap-1"></div>
+          <ol id="dash_progress" class="space-y-1 text-xs"></ol>
+        </div>
+
+        <!-- 目前關卡卡片 -->
+        <div id="dash_current_card" class="bg-white border border-gray-200 border-l-4 border-l-blue-600 p-4 space-y-2">
+          <div class="flex justify-between items-center gap-2">
+            <span id="dash_current_tag" class="text-xs font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full"><i class="fa-solid fa-location-crosshairs mr-1"></i>目前關卡</span>
+            <button onclick="refresh(false)" class="text-[11px] text-blue-700 font-bold"><i class="fa-solid fa-rotate-right mr-1"></i>重新整理</button>
+          </div>
+          <h3 id="dash_current_name" class="text-lg font-black text-blue-950">載入中...</h3>
+          <!-- 位置異動提示（關主臨時改了位置） -->
+          <div id="dash_loc_notice" class="hidden flex items-center justify-between gap-2 bg-yellow-100 border-2 border-yellow-400 text-yellow-900 px-3 py-2">
+            <p class="text-sm font-black">📢 位置已更新<span id="dash_loc_notice_time" class="font-bold"></span>，請依新位置前往</p>
+            <button onclick="acknowledgeLocation()" class="shrink-0 bg-yellow-300 hover:bg-yellow-400 text-gray-900 text-xs font-bold px-3 py-1.5">知道了</button>
+          </div>
+          <p class="text-sm text-blue-800 font-medium"><i id="dash_current_pin" class="fa-solid fa-map-pin mr-1 text-red-500"></i><span id="dash_current_desc"></span></p>
+          <p id="dash_current_updated" class="text-[11px] text-blue-600"></p>
+          <a id="dash_current_map" href="#" target="_blank" rel="noopener noreferrer" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm py-2.5 px-4 inline-flex items-center justify-center gap-2 transition">
+            <i class="fa-solid fa-map-location-dot"></i> 開啟 Google Maps 導航
+          </a>
+          <p id="dash_map_missing" class="hidden text-xs text-blue-700">關主尚未提供有效的地圖連結，請依位置描述前往。</p>
+
+          <!-- 大地關：由關主登錄 -->
+          <p id="dash_game_hint" class="hidden text-xs font-bold text-blue-900 bg-white/70 p-2.5"><i class="fa-solid fa-user-check mr-1"></i>完成遊戲後，請關主在關主頁面登錄「過關」。</p>
+
+          <!-- 食物關：關主登錄籤種 → 隊輔上傳照片確認 -->
+          <div id="dash_food_box" class="hidden bg-white p-3 border border-gray-200 border-l-4 border-l-teal-600 space-y-2">
+            <p id="dash_food_waiting" class="text-xs font-bold text-blue-800"><i class="fa-solid fa-hourglass-half mr-1"></i>等待關主登錄抽籤結果…（可按右上角「重新整理」）</p>
+            <div id="dash_food_assigned" class="hidden space-y-2">
+              <p class="text-xs font-bold text-gray-600">關主登錄的抽籤結果（不可修改）</p>
+              <p class="text-lg font-black"><span id="dash_food_tier"></span>｜<span id="dash_food_name"></span></p>
+              <label for="food_confirm_photo" class="block text-xs font-bold text-gray-700">上傳照片（必填）</label>
+              <input type="file" id="food_confirm_photo" accept="image/*" class="w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-3 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700"/>
+              <button id="btn_food_confirm" onclick="confirmFood()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 text-sm">
+                <i class="fa-solid fa-circle-check mr-1"></i>確認完成並前往下一關
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 代步工具申報（每隊一次） -->
+        <div class="flex items-center justify-between gap-3 bg-red-50 p-3.5 border border-red-200">
+          <div class="text-xs text-red-900">
+            <p class="font-bold"><i class="fa-solid fa-person-biking mr-1"></i>代步工具申報</p>
+            <p id="dash_penalty_text" class="mt-0.5 text-red-700">如有使用腳踏車／滑板車，總時間加罰 30 分鐘（每隊一次）</p>
+          </div>
+          <button id="btn_penalty" onclick="declarePenalty()" class="shrink-0 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-2">申報</button>
+        </div>
+
+        <div class="mt-auto pt-2">
+          <button id="btn_go_report" onclick="openTempView()" class="w-full text-white bg-purple-600 hover:bg-purple-700 font-bold text-base px-5 py-3.5 text-center inline-flex justify-center items-center transition-transform active:scale-95">
+            <i class="fa-solid fa-star mr-2"></i>新增臨時任務回報
+          </button>
+          <p id="dash_lock_hint" class="text-xs text-center text-red-600 font-bold mt-2 hidden"></p>
+        </div>
+      </main>
+
+      <!-- ========================================== -->
+      <!-- VIEW 3: 臨時任務表單 -->
+      <!-- ========================================== -->
+      <main id="view-report" class="hidden flex-grow p-5 pb-32 space-y-5">
+        <div class="flex justify-between items-center border-b border-gray-200 pb-3">
+          <h2 class="text-xl font-black text-gray-800">臨時任務回報</h2>
+          <button onclick="switchView('view-dashboard')" class="text-gray-500 hover:text-gray-800 font-bold text-sm">
+            <i class="fa-solid fa-xmark mr-1"></i>取消
+          </button>
+        </div>
+
+        <div>
+          <label for="current_time" class="block text-sm font-bold text-gray-700 mb-1"><i class="fa-solid fa-clock mr-1"></i> 手機目前時間</label>
+          <input type="text" id="current_time" readonly class="w-full bg-gray-200 border-gray-300 text-gray-600 p-3 font-mono font-bold text-center" value="--:--:--">
+          <p class="text-[11px] text-gray-500 mt-1">正式紀錄以伺服器收件時間為準，送出成功後會顯示。</p>
+        </div>
+
+        <div class="space-y-4 bg-purple-50 p-4 border border-purple-100">
+          <div>
+            <label for="temp_task_name" class="block text-sm font-bold text-gray-700 mb-1">任務名稱（每次 +1 分）</label>
+            <input type="text" id="temp_task_name" maxlength="40" class="w-full bg-white border border-gray-300 text-gray-900 p-3" placeholder="請輸入任務名稱">
+          </div>
+          <div>
+            <label for="temp_photo" class="block text-sm font-bold text-gray-700 mb-1">任務照片存證（選填）</label>
+            <input type="file" id="temp_photo" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200"/>
+          </div>
+        </div>
+
+        <div class="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 p-4 z-20">
+          <div class="max-w-md mx-auto">
+            <button id="btn_submit_report" onclick="submitReport()" class="w-full text-white bg-purple-600 hover:bg-purple-700 font-bold text-lg px-5 py-4 text-center inline-flex justify-center items-center transition-transform active:scale-95">
+              <i class="fa-solid fa-paper-plane mr-2"></i> 確認送出
+            </button>
+          </div>
+        </div>
+      </main>
+
+      <!-- ========================================== -->
+      <!-- VIEW 4: ADMIN DASHBOARD -->
+      <!-- ========================================== -->
+      <main id="view-admin" class="hidden flex-grow flex flex-col p-5 space-y-6 pb-12">
+        <div class="flex justify-between items-center border-b border-gray-200 pb-3">
+          <h2 class="text-xl font-black text-gray-800"><i class="fa-solid fa-chess-king text-blue-500 mr-2"></i>總部戰情室</h2>
+          <button onclick="refresh(false)" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 text-xs font-bold transition">
+            <i class="fa-solid fa-rotate-right mr-1"></i>刷新數據
+          </button>
+        </div>
+
+        <!-- 1. 活動狀態與時間控制面板 -->
+        <div class="bg-white p-4 border-2 border-blue-200 space-y-3">
+          <div class="flex justify-between items-center">
+            <h3 class="text-sm font-black text-gray-800"><i class="fa-solid fa-stopwatch text-blue-600 mr-1"></i>活動生命週期控制</h3>
+            <span id="admin_event_badge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800">未開始</span>
+          </div>
+          <div class="text-xs text-gray-600 space-y-1 bg-gray-50 p-3 font-mono">
+            <div>開始時間：<span id="admin_start_time" class="font-bold text-gray-900">--</span></div>
+            <div>結束時間：<span id="admin_end_time" class="font-bold text-gray-900">--</span></div>
+            <div>計分：每 1 分折抵 <span id="admin_credit" class="font-bold text-gray-900">10</span> 分鐘｜代步罰 <span id="admin_penalty_min" class="font-bold text-gray-900">30</span> 分鐘</div>
+          </div>
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button id="btn_start_event" onclick="controlEvent('start')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 text-sm transition">
+              <i class="fa-solid fa-play mr-1"></i><span id="btn_start_label">開始活動</span>
+            </button>
+            <button id="btn_end_event" onclick="controlEvent('end')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 text-sm transition">
+              <i class="fa-solid fa-stop mr-1"></i>結束並鎖定回報
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. 關卡管理與隊伍進度（可代關主操作） -->
+        <div class="bg-white p-4 border border-gray-200 space-y-3">
+          <h3 class="text-sm font-black text-gray-800"><i class="fa-solid fa-route text-blue-600 mr-1"></i>關卡管理與隊伍進度</h3>
+          <p class="text-[11px] text-gray-500">依闖關順序列出每一關與目前在該關的隊伍。可代關主登錄、取消／恢復大地關、認定食物關通過。</p>
+          <div id="admin_station_list" class="space-y-3"></div>
+        </div>
+
+        <!-- 3. 隊伍抵達登錄 -->
+        <div class="bg-white p-4 border border-gray-200 space-y-3">
+          <h3 class="text-sm font-black text-gray-800"><i class="fa-solid fa-flag-checkered text-blue-600 mr-1"></i>隊伍抵達登錄</h3>
+          <p class="text-[11px] text-gray-500">隊伍到達終點時按「登錄抵達」記下當下時間；按錯可「清除」後重新登錄。登錄後該隊無法再新增回報。</p>
+          <div id="admin_arrival_list" class="divide-y divide-gray-100"></div>
+          <div class="bg-gray-50 p-3 space-y-2">
+            <p class="text-xs font-bold text-gray-700">手動補登（事後補記實際抵達時間）</p>
+            <div class="flex gap-2">
+              <select id="arrival_team_select" aria-label="補登隊伍" class="w-2/5 bg-white border border-gray-300 text-gray-900 text-xs p-2 font-bold"></select>
+              <input type="datetime-local" id="arrival_manual_time" aria-label="實際抵達時間" class="w-3/5 bg-white border border-gray-300 text-gray-900 text-xs p-2 font-mono">
+            </div>
+            <button data-act="arrival-manual" class="w-full bg-zinc-800 hover:bg-black text-white font-bold py-2 text-xs">補登抵達時間</button>
+          </div>
+        </div>
+
+        <!-- 4. 排行榜與獎項 -->
+        <div class="bg-white border border-gray-200 overflow-hidden">
+          <table class="w-full text-sm text-left">
+            <thead class="bg-gray-50 text-gray-700 border-b border-gray-200 text-xs">
+              <tr>
+                <th class="px-3 py-2.5 font-bold">排名</th>
+                <th class="px-3 py-2.5 font-bold">小隊 / 明細</th>
+                <th class="px-3 py-2.5 font-bold text-right">結算時間</th>
+              </tr>
+            </thead>
+            <tbody id="admin_leaderboard" class="divide-y divide-gray-100"></tbody>
+          </table>
+          <p class="text-[11px] text-gray-500 px-3 py-2 bg-gray-50 border-t">排名依序比較：結算時間少 → 天堂籤多 → 未用代步工具 → 人數少 → 地獄籤少；全部相同則並列，由總召裁定。未抵達的隊伍不列入名次。</p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3">
+          <div class="bg-purple-900 p-4 text-white border-l-4 border-l-purple-300">
+            <p class="text-xs text-purple-200 font-bold mb-1">😵 受難者獎（不含前三名；地獄籤多 → 結算較慢）</p>
+            <h3 id="admin_sufferer" class="text-xl font-bold text-purple-200">計算中...</h3>
+            <p id="admin_sufferer_detail" class="text-xs mt-1 text-purple-200"></p>
+          </div>
+          <div class="bg-gray-900 p-4 text-white border-l-4 border-l-blue-400">
+            <p class="text-xs text-gray-300 font-bold mb-1">👿 地獄籤王 (吃最多地獄籤)</p>
+            <h3 id="admin_hell_king" class="text-xl font-black text-blue-400">計算中...</h3>
+            <p id="admin_hell_count" class="text-xs mt-1 text-zinc-400">累計: 0 次</p>
+          </div>
+        </div>
+
+        <!-- 5. 回報紀錄與作廢 -->
+        <div class="bg-white p-4 border border-gray-200 space-y-3">
+          <div class="flex justify-between items-center gap-2">
+            <h3 class="text-sm font-black text-gray-800"><i class="fa-solid fa-list-check text-blue-600 mr-1"></i>回報紀錄（可作廢／恢復）</h3>
+            <select id="admin_log_filter" aria-label="篩選小隊" onchange="renderAdminLogs()" class="bg-white border border-gray-300 text-gray-900 text-xs p-1.5 font-bold"></select>
+          </div>
+          <p class="text-[11px] text-gray-500">作廢一筆關卡紀錄後，該隊會回到那一關，需要重新登錄。</p>
+          <div id="admin_log_list" class="divide-y divide-gray-100 text-xs"></div>
+        </div>
+
+        <!-- 6. 使用者密碼重置管理 -->
+        <div class="bg-gray-50 p-4 border border-gray-200 space-y-3">
+          <h3 class="text-sm font-black text-gray-800"><i class="fa-solid fa-key text-blue-600 mr-1"></i>帳號密碼重置管理</h3>
+          <p class="text-xs text-gray-500">使用者無法自行修改密碼，遺忘密碼時可由管理員直接重置（4–32 字元，不含空白）。重置後該帳號在其他手機上會被登出。</p>
+          <div class="flex gap-2">
+            <select id="reset_user_select" aria-label="重置對象" class="w-1/2 bg-white border border-gray-300 text-gray-900 text-xs p-2.5 font-bold"></select>
+            <input type="text" id="reset_new_pwd" aria-label="新密碼" autocomplete="off" placeholder="輸入新密碼" class="w-1/2 bg-white border border-gray-300 text-gray-900 text-xs p-2.5 font-mono">
+          </div>
+          <button id="btn_reset_pwd" onclick="adminResetPassword()" class="w-full bg-zinc-800 hover:bg-black text-white font-bold py-2.5 text-xs transition">
+            確認重置該帳號密碼
+          </button>
+        </div>
+
+        <!-- 7. 一鍵重置活動資料（無法復原） -->
+        <div id="admin_reset_box" class="bg-white p-4 border-2 border-red-600 space-y-3">
+          <h3 class="text-sm font-black text-red-700"><i class="fa-solid fa-triangle-exclamation mr-1"></i>重置活動資料（無法復原）</h3>
+          <p class="text-xs text-gray-700">用於彩排後清場、正式活動前清除測試資料。</p>
+          <div class="grid grid-cols-2 gap-2 text-[11px]">
+            <div class="bg-red-50 border border-red-200 p-2">
+              <p class="font-bold text-red-700 mb-1">會清除</p>
+              <p class="text-gray-700 leading-relaxed">所有回報紀錄<br>關主登錄的籤種<br>各隊抵達時間<br>取消的大地關（恢復）<br>活動狀態（回到未開始）</p>
+            </div>
+            <div class="bg-gray-50 border border-gray-200 p-2">
+              <p class="font-bold text-gray-800 mb-1">會保留</p>
+              <p class="text-gray-700 leading-relaxed">帳號與密碼<br>隊名與成員<br>關卡與位置<br>計分設定<br>Drive 照片</p>
+            </div>
+          </div>
+          <p id="admin_reset_live_warning" class="hidden text-xs font-bold text-white bg-red-600 p-2"><i class="fa-solid fa-circle-exclamation mr-1"></i>活動正在進行中！重置會清除目前所有隊伍的進度。</p>
+          <div>
+            <label for="admin_reset_confirm" class="block text-xs font-bold text-gray-800 mb-1">請輸入「重置」兩個字以確認</label>
+            <input type="text" id="admin_reset_confirm" autocomplete="off" placeholder="重置" class="w-full bg-white border border-gray-300 text-gray-900 text-sm p-2.5">
+          </div>
+          <button id="btn_reset_event" onclick="adminResetEvent()" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 text-sm transition">
+            <i class="fa-solid fa-rotate-left mr-1"></i>重置全部活動資料
+          </button>
+        </div>
+      </main>
+
+      <!-- ========================================== -->
+      <!-- VIEW 5: STATION MASTER（關主：本關隊伍 + 位置） -->
+      <!-- ========================================== -->
+      <main id="view-master" class="hidden flex-grow flex flex-col p-5 space-y-5">
+        <div class="bg-teal-50 p-4 border border-teal-200">
+          <span id="master_type_badge" class="text-xs font-bold bg-teal-600 text-white px-2 py-0.5 rounded-full">關主專用介面</span>
+          <h2 id="master_station_name" class="text-xl font-black text-teal-950 mt-2">關卡名稱</h2>
+          <p id="master_name_label" class="text-xs text-teal-700 font-bold mt-1">負責關主</p>
+          <p id="master_cancelled" class="hidden text-xs font-bold text-red-700 mt-2"><i class="fa-solid fa-ban mr-1"></i>本關已被總部取消，隊伍會直接跳過本關。</p>
+        </div>
+
+        <!-- 本關隊伍 -->
+        <div class="bg-white p-4 border-2 border-teal-200 space-y-3">
+          <div class="flex justify-between items-center">
+            <h3 class="text-sm font-black text-gray-800"><i class="fa-solid fa-people-group text-teal-600 mr-1"></i>目前在本關的隊伍</h3>
+            <button onclick="refresh(false)" class="text-[11px] text-teal-700 font-bold"><i class="fa-solid fa-rotate-right mr-1"></i>重新整理</button>
+          </div>
+          <p id="master_teams_hint" class="text-[11px] text-gray-500"></p>
+          <div id="master_team_list" class="divide-y divide-gray-100"></div>
+        </div>
+
+        <div class="bg-white p-4 border border-gray-200 space-y-4">
+          <h3 class="text-sm font-black text-gray-800 border-b pb-2"><i class="fa-solid fa-map-pin text-red-500 mr-1"></i>更新關主所在位置</h3>
+
+          <div>
+            <label for="master_loc_desc" class="block text-xs font-bold text-gray-700 mb-1">位置明顯地標 / 補充說明（最多 60 字）</label>
+            <input type="text" id="master_loc_desc" maxlength="60" class="w-full bg-gray-50 border border-gray-300 p-3 text-sm font-medium" placeholder="例：大義區 C7 倉庫木棧道長椅">
+          </div>
+
+          <div class="space-y-2">
+            <label for="master_map_url" class="block text-xs font-bold text-gray-700">Google Maps 地標或座標網址</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="getGPSLocation()" class="text-xs bg-teal-50 border border-teal-200 text-teal-800 font-bold py-2 flex items-center justify-center gap-1">
+                <i class="fa-solid fa-location-arrow"></i>一鍵帶入手機 GPS
+              </button>
+              <button onclick="pasteMapLink()" class="text-xs bg-teal-50 border border-teal-200 text-teal-800 font-bold py-2 flex items-center justify-center gap-1">
+                <i class="fa-solid fa-paste"></i>貼上分享連結
+              </button>
+            </div>
+            <input type="url" id="master_map_url" class="w-full bg-gray-50 border border-gray-300 p-3 text-xs font-mono text-gray-700" placeholder="https://maps.app.goo.gl/...">
+            <p id="master_gps_status" class="text-[11px] text-gray-600 hidden"></p>
+            <a id="master_verify_link" href="#" target="_blank" rel="noopener noreferrer" class="hidden text-xs text-teal-700 font-bold underline"><i class="fa-solid fa-up-right-from-square mr-1"></i>在 Google Maps 開啟確認位置</a>
+            <p class="text-[11px] text-gray-500 leading-relaxed">💡 GPS 不準時：在 Google Maps App 長按地圖丟下圖釘 →「分享」→「複製連結」，再回本頁按「貼上分享連結」。</p>
+          </div>
+
+          <button id="btn_update_station" onclick="updateStationLocation()" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3.5 text-base transition active:scale-95">
+            <i class="fa-solid fa-cloud-arrow-up mr-1"></i> 立即同步位置給所有小隊
+          </button>
+        </div>
+
+        <div class="bg-gray-50 p-3.5 border border-gray-200 text-xs text-gray-600 space-y-1">
+          <p class="font-bold text-gray-800">目前小隊看到的公開資訊：</p>
+          <p id="master_preview_desc">地標：--</p>
+          <p id="master_preview_time">最後更新：--</p>
+          <a id="master_preview_map" href="#" target="_blank" rel="noopener noreferrer" class="hidden text-teal-700 font-bold underline">開啟目前公開的地圖連結</a>
+        </div>
+      </main>
+
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: 回報成功 & 下一關導航指引彈窗 -->
+  <!-- ========================================== -->
+  <div id="modal_next_station" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white max-w-sm w-full p-6 space-y-4 text-center">
+      <div class="w-14 h-14 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto text-2xl">
+        <i class="fa-solid fa-check"></i>
+      </div>
+      <h3 id="modal_title" class="text-xl font-black text-gray-900">回報成功！</h3>
+      <p id="modal_recorded_at" class="text-xs text-gray-500"></p>
+      <p id="modal_photo_warning" class="hidden text-xs font-bold text-red-600"></p>
+
+      <div class="bg-blue-50 p-4 border border-blue-200 text-left space-y-2">
+        <span class="text-[11px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full">下一站</span>
+        <h4 id="modal_station_name" class="text-lg font-black text-blue-950">關卡名稱</h4>
+        <p class="text-sm text-blue-900 font-medium"><i id="modal_station_pin" class="fa-solid fa-location-dot text-red-500 mr-1"></i><span id="modal_station_desc"></span></p>
+        <a id="modal_station_map" href="#" target="_blank" rel="noopener noreferrer" class="mt-2 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm py-3 px-4 inline-flex items-center justify-center gap-2">
+          <i class="fa-solid fa-diamond-turn-right"></i> 開啟 Google Maps 導航
+        </a>
+      </div>
+
+      <button onclick="closeNextStationModal()" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-3 text-sm">
+        返回小隊儀表板
+      </button>
+    </div>
+  </div>
+
+  <script>
+// @@SHARED-CORE-BEGIN
+// ⚠️ 共用核心：此區塊在 Code.gs 與 index.html 中必須「逐字相同」（測試會比對）。
+//    修改計分或驗證規則時，兩個檔案要一起改。
+var CoreApi = (function () {
+  'use strict';
+
+  var TIER_NAMES = Object.freeze({ 1: '地獄', 2: '平民', 3: '天堂' });
+  var ROLES = ['team', 'master', 'admin'];
+  var STATION_TYPES = ['game', 'food'];
+  var DEFAULT_CREDIT_PER_POINT = 10;
+  var DEFAULT_PENALTY_MINUTES = 30;
+  var TEMP_SCORE = 1;
+  var SUFFERER_EXCLUDE_TOP = 3;   // 受難者不含前三名
+  var SUFFERER_MIN_HELL = 1;      // 受難者至少要有 1 張地獄籤（每隊最多 3 張）
+  var MAX_TEXT = 40;
+  var MAX_DESC = 60;
+  var MAX_PHOTO_CHARS = 2800000;
+  var TZ_OFFSET_MS = 8 * 3600000; // Asia/Taipei（UTC+8，無日光節約時間）
+
+  // 各工作表欄位位置（從 0 起算）
+  var COL = {
+    users: { id: 0, pwd: 1, role: 2, name: 3, members: 4, arrival: 5 },
+    config: { status: 0, start: 1, end: 2, credit: 3, penalty: 4 },
+    stations: { id: 0, name: 1, type: 2, master: 3, status: 4, desc: 5, mapUrl: 6, updatedAt: 7 },
+    logs: { ts: 0, team: 1, type: 2, tier: 3, detail: 4, score: 5, penalty: 6, photo: 7, rid: 8, station: 9, voided: 10, by: 11 },
+    assignments: { team: 0, station: 1, tier: 2, food: 3, by: 4, at: 5, status: 6 }
+  };
+
+  var MSG = {
+    AUTH: '帳號代碼或密碼錯誤（或密碼已被重置），請重新登入。',
+    FORBIDDEN: '您的帳號沒有執行此操作的權限。',
+    BUSY: '系統忙碌中，請稍候幾秒再送出一次（同一筆回報不會重複計分）。',
+    ERROR: '伺服器處理異常，請稍後再試；若持續發生請聯絡總部。',
+    BAD_REQUEST: '請求格式錯誤。',
+    MAP_URL: '地圖網址必須是 Google Maps 連結（https://www.google.com/maps…、https://maps.google.com/… 或 https://maps.app.goo.gl/…）。'
+  };
+
+  function CoreError(code, msg) { this.code = code; this.msg = msg; }
+  function fail(code, msg) { throw new CoreError(code, msg || MSG[code] || '操作失敗。'); }
+  function has(obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); }
+
+  // ---------- 時間 ----------
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  function formatTpe(ms, timeOnly) {
+    var d = new Date(ms + TZ_OFFSET_MS);
+    var t = pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes()) + ':' + pad2(d.getUTCSeconds());
+    if (timeOnly) return t;
+    return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate()) + ' ' + t;
+  }
+
+  // 解析台北時間字串 'yyyy-MM-dd HH:mm[:ss]'（也接受 T 分隔）；不合法回傳 null
+  function parseTpe(s) {
+    if (typeof s !== 'string') return null;
+    var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(s.trim());
+    if (!m) return null;
+    var y = +m[1], mo = +m[2], d = +m[3], h = +m[4], mi = +m[5], se = +(m[6] || 0);
+    if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59 || se > 59) return null;
+    var ms = Date.UTC(y, mo - 1, d, h, mi, se);
+    var chk = new Date(ms);
+    if (chk.getUTCMonth() !== mo - 1 || chk.getUTCDate() !== d) return null;
+    return ms - TZ_OFFSET_MS;
+  }
+
+  function isDateLike(v) { return !!v && typeof v === 'object' && typeof v.getTime === 'function'; }
+
+  function cellToMs(v) {
+    if (isDateLike(v)) { var t = v.getTime(); return isNaN(t) ? null : t; }
+    if (typeof v === 'string' && v.trim()) return parseTpe(v);
+    return null;
+  }
+
+  // ---------- 儲存格正規化 ----------
+  function txt(v) {
+    if (v === null || v === undefined) return '';
+    if (isDateLike(v)) return formatTpe(v.getTime());
+    var s = String(v).trim();
+    // 寫入時為防公式注入而加的開頭單引號，讀回時去掉
+    if (s.length > 1 && s.charAt(0) === "'" && /[=+\-@]/.test(s.charAt(1))) s = s.slice(1);
+    return s;
+  }
+  function timeText(v) { return isDateLike(v) ? formatTpe(v.getTime(), true) : txt(v); }
+  function nonNeg(v, def) {
+    if (v === '' || v === null || v === undefined || typeof v === 'boolean') return def;
+    var n = Number(v);
+    return isFinite(n) && n >= 0 ? n : def;
+  }
+  function splitList(v) {
+    return txt(v).split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s !== ''; });
+  }
+  function isVoidCell(v) {
+    if (v === true) return true;
+    var s = txt(v).toUpperCase();
+    return s === 'VOID' || s === 'TRUE';
+  }
+  function tierOf(v) {
+    if (v === '' || v === null || v === undefined) return null;
+    var n = Number(v);
+    return n === 1 || n === 2 || n === 3 ? n : null;
+  }
+
+  // ---------- 網址白名單 ----------
+  function isAllowedMapUrl(u) {
+    if (typeof u !== 'string' || u.length > 2000) return false;
+    var m = /^https:\/\/([a-z0-9.-]+)(\/[^\s"'<>\\`]*)?$/i.exec(u);
+    if (!m) return false;
+    var host = m[1].toLowerCase();
+    var path = m[2] || '/';
+    if (host === 'maps.google.com' || host === 'maps.app.goo.gl') return true;
+    if (host === 'www.google.com') return /^\/maps(?:[\/?#]|$)/.test(path);
+    return false;
+  }
+  function isDrivePhotoUrl(u) {
+    return typeof u === 'string' && /^https:\/\/drive\.google\.com\/[A-Za-z0-9_\-\/?=&.%]*$/.test(u);
+  }
+
+  // ---------- 讀取資料 ----------
+  function normalize(raw) {
+    raw = raw || {};
+    var users = [], stations = [], logs = [], assignments = [], seenUser = {}, seenStation = {};
+    (raw.users || []).forEach(function (row, idx) {
+      var id = txt(row[COL.users.id]).toUpperCase();
+      if (!id || has(seenUser, id)) return; // 同代碼重複列只認第一列
+      seenUser[id] = true;
+      var role = txt(row[COL.users.role]).toLowerCase();
+      users.push({
+        idx: idx, id: id, pwd: txt(row[COL.users.pwd]), role: role,
+        name: txt(row[COL.users.name]) || id,
+        members: role === 'team' ? splitList(row[COL.users.members]) : [],
+        stationId: role === 'master' ? txt(row[COL.users.members]).toUpperCase() : '',
+        arrivalMs: role === 'team' ? cellToMs(row[COL.users.arrival]) : null
+      });
+    });
+    var c = raw.config || [];
+    var status = txt(c[COL.config.status]).toLowerCase();
+    var config = {
+      status: status === 'active' || status === 'ended' ? status : 'pending',
+      startMs: cellToMs(c[COL.config.start]),
+      endMs: cellToMs(c[COL.config.end]),
+      creditPerPoint: nonNeg(c[COL.config.credit], DEFAULT_CREDIT_PER_POINT),
+      penaltyMinutes: nonNeg(c[COL.config.penalty], DEFAULT_PENALTY_MINUTES)
+    };
+    // 關卡的列順序＝闖關順序
+    (raw.stations || []).forEach(function (row, idx) {
+      var id = txt(row[COL.stations.id]).toUpperCase();
+      if (!id || has(seenStation, id)) return;
+      var type = txt(row[COL.stations.type]).toLowerCase();
+      if (STATION_TYPES.indexOf(type) < 0) return; // 類型不明的列不列入流程
+      seenStation[id] = true;
+      stations.push({
+        idx: idx, order: stations.length + 1, id: id, type: type,
+        name: txt(row[COL.stations.name]) || id,
+        masterId: txt(row[COL.stations.master]).toUpperCase(),
+        cancelled: type === 'game' && txt(row[COL.stations.status]).toLowerCase() === 'cancelled',
+        desc: txt(row[COL.stations.desc]), mapUrl: txt(row[COL.stations.mapUrl]),
+        updatedAt: timeText(row[COL.stations.updatedAt])
+      });
+    });
+    (raw.logs || []).forEach(function (row, idx) {
+      var teamId = txt(row[COL.logs.team]).toUpperCase();
+      if (!teamId) return;
+      logs.push({
+        idx: idx, timestamp: txt(row[COL.logs.ts]), teamId: teamId, type: txt(row[COL.logs.type]).toLowerCase(),
+        tier: tierOf(row[COL.logs.tier]),
+        taskDetail: txt(row[COL.logs.detail]),
+        score: nonNeg(row[COL.logs.score], 0), penalty: nonNeg(row[COL.logs.penalty], 0),
+        photoUrl: txt(row[COL.logs.photo]), requestId: txt(row[COL.logs.rid]),
+        stationId: txt(row[COL.logs.station]).toUpperCase(),
+        voided: isVoidCell(row[COL.logs.voided]),
+        recordedBy: txt(row[COL.logs.by]).toUpperCase()
+      });
+    });
+    (raw.assignments || []).forEach(function (row, idx) {
+      var teamId = txt(row[COL.assignments.team]).toUpperCase();
+      if (!teamId) return;
+      var st = txt(row[COL.assignments.status]).toLowerCase();
+      assignments.push({
+        idx: idx, teamId: teamId, stationId: txt(row[COL.assignments.station]).toUpperCase(),
+        tier: tierOf(row[COL.assignments.tier]), foodName: txt(row[COL.assignments.food]),
+        assignedBy: txt(row[COL.assignments.by]).toUpperCase(), assignedAt: txt(row[COL.assignments.at]),
+        status: st === 'done' || st === 'cancelled' ? st : 'pending'
+      });
+    });
+    return { users: users, config: config, stations: stations, logs: logs, assignments: assignments };
+  }
+
+  function findUser(data, id) {
+    for (var i = 0; i < data.users.length; i++) if (data.users[i].id === id) return data.users[i];
+    return null;
+  }
+  function findStation(data, id) {
+    for (var i = 0; i < data.stations.length; i++) if (data.stations[i].id === id) return data.stations[i];
+    return null;
+  }
+  function findLogByRid(data, rid) {
+    for (var i = 0; i < data.logs.length; i++) if (data.logs[i].requestId === rid) return data.logs[i];
+    return null;
+  }
+  function validLogsOf(data, teamId) {
+    return data.logs.filter(function (l) { return l.teamId === teamId && !l.voided; });
+  }
+  function foodStations(data) {
+    return data.stations.filter(function (s) { return s.type === 'food'; });
+  }
+  function pendingAssignment(data, teamId, stationId) {
+    for (var i = 0; i < data.assignments.length; i++) {
+      var a = data.assignments[i];
+      if (a.teamId === teamId && a.stationId === stationId && a.status === 'pending') return a;
+    }
+    return null;
+  }
+  // 一筆紀錄是否「完成」某一關（大地過關／跳過、食物確認）
+  function completesStation(l, st) {
+    if (l.stationId !== st.id) return false;
+    return st.type === 'game' ? (l.type === 'game' || l.type === 'skip') : l.type === 'food';
+  }
+
+  // ---------- 闖關進度（補齊制：順序中第一個「未取消且沒有有效完成紀錄」的關卡） ----------
+  function progressOf(data, teamId) {
+    var valid = validLogsOf(data, teamId);
+    var list = [], current = null;
+    data.stations.forEach(function (st) {
+      var rec = null;
+      for (var i = 0; i < valid.length; i++) if (completesStation(valid[i], st)) { rec = valid[i]; break; }
+      var state;
+      if (rec) state = rec.type === 'skip' ? 'skipped' : 'done';
+      else if (st.cancelled) state = 'cancelled';
+      else if (!current) { state = 'current'; current = st; }
+      else state = 'todo';
+      list.push({ id: st.id, state: state });
+    });
+    var countable = data.stations.filter(function (s) { return !s.cancelled || list.some(function (x) { return x.id === s.id && (x.state === 'done' || x.state === 'skipped'); }); });
+    return {
+      stations: list,
+      currentStationId: current ? current.id : null,
+      completed: list.filter(function (x) { return x.state === 'done' || x.state === 'skipped'; }).length,
+      total: countable.length,
+      penaltyUsed: valid.some(function (l) { return l.type === 'penalty'; })
+    };
+  }
+
+  // ---------- 驗證身分 ----------
+  function authenticate(data, body) {
+    var code = typeof body.code === 'string' ? body.code.trim().toUpperCase() : '';
+    var pwd = typeof body.pwd === 'string' ? body.pwd.trim() : '';
+    if (!code || !pwd) fail('AUTH');
+    var u = findUser(data, code);
+    if (!u || u.pwd === '' || u.pwd !== pwd || ROLES.indexOf(u.role) < 0) fail('AUTH');
+    return u;
+  }
+  function requireRole(user, role) { if (user.role !== role) fail('FORBIDDEN'); }
+
+  // ---------- 輸出（依角色過濾） ----------
+  function viewAssignment(a) {
+    return a ? { stationId: a.stationId, tier: a.tier, foodName: a.foodName, assignedAt: a.assignedAt } : null;
+  }
+
+  function viewUser(data, u, full) {
+    var o = { id: u.id, role: u.role, name: u.name };
+    if (u.role === 'team') {
+      var p = progressOf(data, u.id);
+      o.members = u.members.slice();
+      o.progress = p;
+      o.arrived = u.arrivalMs !== null;
+      o.assignment = p.currentStationId ? viewAssignment(pendingAssignment(data, u.id, p.currentStationId)) : null;
+      if (full) o.arrivalTime = u.arrivalMs === null ? null : formatTpe(u.arrivalMs);
+    } else if (u.role === 'master') {
+      o.stationId = u.stationId;
+    }
+    return o;
+  }
+
+  function viewLog(l, full) {
+    var o = {
+      requestId: l.requestId, timestamp: l.timestamp, teamId: l.teamId, type: l.type, tier: l.tier,
+      taskDetail: l.taskDetail, score: l.score, penalty: l.penalty, stationId: l.stationId, voided: l.voided
+    };
+    if (full) {
+      o.photoUrl = isDrivePhotoUrl(l.photoUrl) ? l.photoUrl : '';
+      o.recordedBy = l.recordedBy;
+    }
+    return o;
+  }
+
+  // 目前正在某一關的隊伍（關主的「本關隊伍」、管理員的「隊伍進度」）
+  function teamsAt(data, stationId) {
+    return data.users.filter(function (u) {
+      return u.role === 'team' && u.arrivalMs === null && progressOf(data, u.id).currentStationId === stationId;
+    }).map(function (u) {
+      var a = pendingAssignment(data, u.id, stationId);
+      return { id: u.id, name: u.name, assignment: viewAssignment(a) };
+    });
+  }
+
+  // 誰可以看到哪些關卡的位置：
+  //   管理員：全部；關主：自己負責的那一關（任何活動狀態，賽前布置需要）；
+  //   小隊：只有目前關卡，且活動進行中、尚未抵達（活動前、結束後、抵達後、全部完成後都沒有）
+  function visibleLocationIds(data, viewer) {
+    if (viewer.role === 'admin') return data.stations.map(function (s) { return s.id; });
+    if (viewer.role === 'master') return findStation(data, viewer.stationId) ? [viewer.stationId] : [];
+    if (viewer.role !== 'team' || data.config.status !== 'active' || viewer.arrivalMs !== null) return [];
+    var cur = progressOf(data, viewer.id).currentStationId;
+    return cur ? [cur] : [];
+  }
+
+  function snapshot(data, viewer) {
+    var isAdmin = viewer.role === 'admin';
+    var cfg = data.config;
+    var db = {
+      config: {
+        status: cfg.status,
+        startTime: cfg.startMs === null ? null : formatTpe(cfg.startMs),
+        endTime: cfg.endMs === null ? null : formatTpe(cfg.endMs),
+        creditPerPoint: cfg.creditPerPoint,
+        penaltyMinutes: cfg.penaltyMinutes
+      },
+      stations: [], users: {}, logs: []
+    };
+    // 位置保密：只有可見的關卡才帶描述、地圖連結與更新時間（其他關卡這三欄一律空白）
+    var visible = visibleLocationIds(data, viewer);
+    data.stations.forEach(function (s) {
+      var show = visible.indexOf(s.id) >= 0;
+      var o = {
+        id: s.id, order: s.order, type: s.type, name: s.name, cancelled: s.cancelled,
+        desc: show ? s.desc : '', mapUrl: show && isAllowedMapUrl(s.mapUrl) ? s.mapUrl : '', updatedAt: show ? s.updatedAt : ''
+      };
+      if (isAdmin) o.masterId = s.masterId;
+      db.stations.push(o);
+    });
+    data.users.forEach(function (u) {
+      if (isAdmin || u.id === viewer.id) db.users[u.id] = viewUser(data, u, isAdmin);
+    });
+    if (viewer.role !== 'master') {
+      data.logs.forEach(function (l) {
+        if (isAdmin || l.teamId === viewer.id) db.logs.push(viewLog(l, isAdmin));
+      });
+    }
+    if (viewer.role === 'master') db.teamsHere = findStation(data, viewer.stationId) ? teamsAt(data, viewer.stationId) : [];
+    if (isAdmin) {
+      db.standings = computeStandings(data);
+      db.teamsAt = {};
+      data.stations.forEach(function (s) { db.teamsAt[s.id] = teamsAt(data, s.id); });
+    }
+    return db;
+  }
+
+  // ---------- 結算、名次與獎項 ----------
+  function teamStats(data, u) {
+    var logs = validLogsOf(data, u.id);
+    var foodIds = foodStations(data).map(function (s) { return s.id; });
+    var foods = logs.filter(function (l) { return l.type === 'food' && foodIds.indexOf(l.stationId) >= 0; });
+    var hell = foods.filter(function (l) { return l.tier === 1; }).length;
+    var score = 0, penalty = 0;
+    logs.forEach(function (l) { score += l.score; penalty += l.penalty; });
+    var prog = progressOf(data, u.id);
+    var start = data.config.startMs;
+    var elapsed = u.arrivalMs !== null && start !== null ? Math.floor((u.arrivalMs - start) / 60000) : null;
+    return {
+      id: u.id, name: u.name, memberCount: u.members.length,
+      arrived: u.arrivalMs !== null,
+      arrivalTime: u.arrivalMs === null ? null : formatTpe(u.arrivalMs),
+      elapsedMinutes: elapsed, score: score, penalty: penalty,
+      usedVehicle: logs.some(function (l) { return l.type === 'penalty'; }),
+      foodCount: foods.length,
+      heavenCount: foods.filter(function (l) { return l.tier === 3; }).length,
+      hellCount: hell,
+      allHell: foodIds.length > 0 && foods.length === foodIds.length && hell === foods.length,
+      completed: prog.completed, total: prog.total,
+      finalTime: elapsed === null ? null : elapsed - score * data.config.creditPerPoint + penalty,
+      rank: null, tie: false
+    };
+  }
+
+  // 1/2/3 名：結算時間少 → 天堂籤多 → 未用代步工具 → 人數少 → 地獄籤少；全部相同則並列
+  function compareRank(a, b) {
+    return (a.finalTime - b.finalTime) || (b.heavenCount - a.heavenCount) ||
+      ((a.usedVehicle ? 1 : 0) - (b.usedVehicle ? 1 : 0)) || (a.memberCount - b.memberCount) ||
+      (a.hellCount - b.hellCount);
+  }
+  // 受難者：地獄籤多 → 結算時間多（較慢）；全部相同則並列
+  // （「三關全地獄」必然等於地獄籤 3 張，已由地獄籤數涵蓋，不另外比較）
+  function compareSufferer(a, b) {
+    return (b.hellCount - a.hellCount) || (b.finalTime - a.finalTime);
+  }
+
+  function computeStandings(data) {
+    var all = data.users.filter(function (u) { return u.role === 'team'; }).map(function (u) { return teamStats(data, u); });
+    var ranked = all.filter(function (t) { return t.finalTime !== null; }).sort(compareRank);
+    ranked.forEach(function (t, i) {
+      t.rank = i > 0 && compareRank(ranked[i - 1], t) === 0 ? ranked[i - 1].rank : i + 1;
+    });
+    ranked.forEach(function (t) {
+      t.tie = ranked.some(function (o) { return o !== t && o.rank === t.rank; });
+    });
+    var unranked = all.filter(function (t) { return t.finalTime === null; });
+
+    // 受難者候選：已抵達、名次不在前三名（並列使名次 ≤ 3 的隊伍超過 3 隊時全部排除）、至少 1 張地獄籤
+    var cands = ranked.filter(function (t) { return t.rank > SUFFERER_EXCLUDE_TOP && t.hellCount >= SUFFERER_MIN_HELL; }).slice().sort(compareSufferer);
+    var winners = cands.filter(function (t) { return compareSufferer(t, cands[0]) === 0; });
+
+    var king = null;
+    all.forEach(function (t) { if (t.hellCount > 0 && (!king || t.hellCount > king.hellCount)) king = t; });
+
+    return {
+      teams: ranked.concat(unranked),
+      sufferer: {
+        teams: winners.map(function (t) {
+          return { id: t.id, name: t.name, hellCount: t.hellCount, allHell: t.allHell, finalTime: t.finalTime };
+        }),
+        tie: winners.length > 1
+      },
+      hellKing: king ? { id: king.id, name: king.name, count: king.hellCount } : null
+    };
+  }
+
+  // ---------- 寫入流程 ----------
+  function okResult(extra, data, viewer) {
+    var res = { ok: true };
+    for (var k in extra) if (has(extra, k)) res[k] = extra[k];
+    res.user = viewUser(data, viewer, viewer.role === 'admin');
+    res.db = snapshot(data, viewer);
+    return res;
+  }
+
+  // 取鎖 → 重新讀取並驗證 → 寫入 → 讀回最新資料
+  function withLock(store, body, user, fn) {
+    if (!store.tryLock()) fail('BUSY');
+    try {
+      var fresh = normalize(store.read());
+      var me = authenticate(fresh, body);
+      if (me.role !== user.role) fail('FORBIDDEN');
+      var extra = fn(fresh, me) || {};
+      var after = normalize(store.read());
+      return okResult(extra, after, findUser(after, me.id) || me);
+    } finally {
+      store.unlock();
+    }
+  }
+
+  function cleanText(v, max, label) {
+    if (v === undefined || v === null) return '';
+    if (typeof v !== 'string') fail('INVALID', label + '格式錯誤。');
+    var s = v.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+    if (s.length > max) fail('INVALID', label + '最多 ' + max + ' 字。');
+    return s;
+  }
+
+  function requestIdOf(body) {
+    var rid = body.requestId;
+    if (typeof rid !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(rid)) {
+      fail('INVALID', '回報編號格式錯誤，請重新整理頁面後再送出。');
+    }
+    return rid;
+  }
+
+  function requireActive(cfg) {
+    if (cfg.status !== 'active') {
+      fail('CLOSED', cfg.status === 'ended' ? '⛔ 活動已結束，系統已關閉回報。' : '⏳ 活動尚未開始，暫時無法回報。');
+    }
+  }
+
+  // 關主只能處理自己負責的關卡；管理員必須指定關卡
+  function stationFor(data, user, body, type) {
+    var sid = user.role === 'master' ? user.stationId : (typeof body.stationId === 'string' ? body.stationId.trim().toUpperCase() : '');
+    var st = findStation(data, sid);
+    if (!st) fail('INVALID', user.role === 'master' ? '找不到您負責的關卡（' + (sid || '未設定') + '），請洽總部確認 Users 表設定。' : '找不到關卡：' + (sid || '（未指定）'));
+    if (user.role === 'master' && type && st.type !== type) fail('FORBIDDEN', '您負責的關卡不是' + (type === 'food' ? '食物關' : '大地關') + '。');
+    if (type && st.type !== type) fail('INVALID', '「' + st.name + '」不是' + (type === 'food' ? '食物關' : '大地關') + '。');
+    return st;
+  }
+
+  // 對某一隊、某一關的操作，共同前提：活動進行中、隊伍未抵達、該隊目前正在這一關
+  function teamAtStation(data, teamId, st) {
+    requireActive(data.config);
+    var team = findUser(data, typeof teamId === 'string' ? teamId.trim().toUpperCase() : '');
+    if (!team || team.role !== 'team') fail('INVALID', '找不到此小隊：' + (teamId || '（未指定）'));
+    if (team.arrivalMs !== null) fail('ARRIVED', '「' + team.name + '」已登錄抵達終點，無法再處理關卡。');
+    if (progressOf(data, team.id).currentStationId !== st.id) {
+      fail('NOT_CURRENT', '「' + team.name + '」目前不在「' + st.name + '」，請確認隊伍是否已完成前面的關卡。');
+    }
+    return team;
+  }
+
+  function photoOf(body, required) {
+    var p = body.photoBase64;
+    if (p === undefined || p === null || p === '') {
+      if (required) fail('PHOTO_REQUIRED', '請先選擇一張照片再確認完成。');
+      return null;
+    }
+    if (typeof p !== 'string' || p.length > MAX_PHOTO_CHARS) fail('INVALID', '照片格式錯誤或檔案過大，請重新選擇照片。');
+    var m = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/]+={0,2}$/.exec(p);
+    if (!m) fail('INVALID', '照片格式錯誤或檔案過大，請重新選擇照片。');
+    return { dataUrl: p, ext: m[1] === 'jpeg' ? 'jpg' : m[1] };
+  }
+
+  function dupExtra(log, owner) {
+    if (log.teamId !== owner) fail('FORBIDDEN', '回報編號重複，請重新整理頁面後再送出。');
+    return { duplicate: true, msg: '此紀錄先前已成功送出（不會重複計分）。', recordedAt: log.timestamp };
+  }
+
+  function appendLogRow(store, env, f) {
+    var ts = formatTpe(env.now);
+    var row = [];
+    row[COL.logs.ts] = ts;
+    row[COL.logs.team] = f.teamId;
+    row[COL.logs.type] = f.type;
+    row[COL.logs.tier] = f.tier === null || f.tier === undefined ? '' : f.tier;
+    row[COL.logs.detail] = f.detail;
+    row[COL.logs.score] = f.score;
+    row[COL.logs.penalty] = f.penalty || 0;
+    row[COL.logs.photo] = f.photoUrl || '';
+    row[COL.logs.rid] = f.rid;
+    row[COL.logs.station] = f.stationId || '';
+    row[COL.logs.voided] = '';
+    row[COL.logs.by] = f.by;
+    store.append('logs', row);
+    return ts;
+  }
+
+  function uploadPhoto(store, env, photo, name) {
+    try {
+      return { url: String(store.uploadPhoto(photo.dataUrl, name + '_' + env.now + '.' + photo.ext) || ''), failed: false };
+    } catch (e) {
+      if (env.logError) env.logError(e);
+      return { url: '', failed: true };
+    }
+  }
+
+  // ---------- 各項動作 ----------
+  function actLogin(store, data, user) { return okResult({}, data, user); }
+  function actSync(store, data, user) { return okResult({}, data, user); }
+
+  // 小隊：臨時任務、代步申報、食物關確認完成
+  function planTeamReport(data, user, body) {
+    requireActive(data.config);
+    if (user.arrivalMs !== null) fail('ARRIVED', '🏁 本隊已登錄抵達終點，無法再新增回報；如有疑問請洽總部。');
+    var type = typeof body.type === 'string' ? body.type : '';
+    if (type === 'temp') {
+      var task = cleanText(body.taskDetail, MAX_TEXT, '任務名稱');
+      if (!task) fail('INVALID', '請輸入任務名稱。');
+      return { type: 'temp', tier: null, score: TEMP_SCORE, penalty: 0, detail: task, stationId: '' };
+    }
+    if (type === 'penalty') {
+      if (validLogsOf(data, user.id).some(function (l) { return l.type === 'penalty'; })) fail('LIMIT', '本隊已申報過代步工具罰時（每隊一次）。');
+      return { type: 'penalty', tier: null, score: 0, penalty: data.config.penaltyMinutes, detail: '使用代步工具', stationId: '' };
+    }
+    if (type === 'foodConfirm') {
+      var cur = findStation(data, progressOf(data, user.id).currentStationId);
+      if (!cur || cur.type !== 'food') fail('NOT_CURRENT', '本隊目前不在食物關。');
+      var asg = pendingAssignment(data, user.id, cur.id);
+      if (!asg) fail('NO_ASSIGNMENT', '關主尚未登錄本隊在「' + cur.name + '」的抽籤結果，請稍候或請關主登錄。');
+      return { type: 'food', tier: asg.tier, score: asg.tier, penalty: 0, detail: asg.foodName || cur.name + '（' + TIER_NAMES[asg.tier] + '籤）', stationId: cur.id, assignment: asg };
+    }
+    if (type === 'game' || type === 'food') fail('FORBIDDEN', '大地關與食物關的結果由關主登錄，小隊不能自行回報。');
+    fail('INVALID', '未知的回報類型。');
+  }
+
+  function actSubmitReport(store, data, user, body, env) {
+    requireRole(user, 'team');
+    var rid = requestIdOf(body);
+    var dup = findLogByRid(data, rid);
+    if (dup) return okResult(dupExtra(dup, user.id), data, user);
+    var plan = planTeamReport(data, user, body);
+    var photo = plan.type === 'penalty' ? null : photoOf(body, plan.type === 'food');
+    var up = photo ? uploadPhoto(store, env, photo, user.id + '_' + plan.type) : { url: '', failed: false };
+    if (plan.type === 'food' && up.failed) fail('PHOTO_FAILED', '照片上傳失敗，尚未記錄完成。請稍後再試一次，或請總部認定通過。');
+    return withLock(store, body, user, function (fresh, me) {
+      var dup2 = findLogByRid(fresh, rid);
+      if (dup2) return dupExtra(dup2, me.id);
+      var p = planTeamReport(fresh, me, body);
+      if (p.type === 'food' && (p.stationId !== plan.stationId || p.tier !== plan.tier || p.detail !== plan.detail)) {
+        fail('CHANGED', '關主剛剛修改了抽籤結果，請確認畫面上的最新內容後再送出一次。');
+      }
+      var ts = appendLogRow(store, env, { teamId: me.id, type: p.type, tier: p.tier, detail: p.detail, score: p.score, penalty: p.penalty, photoUrl: up.url, rid: rid, stationId: p.stationId, by: me.id });
+      if (p.assignment) store.update('assignments', p.assignment.idx, COL.assignments.status, 'done');
+      return { msg: p.type === 'food' ? '已確認完成！' : '回報成功！', recordedAt: ts, photoFailed: up.failed };
+    });
+  }
+
+  // 關主（該關）／管理員：大地關過關或跳過
+  function actStationResult(store, data, user, body, env) {
+    if (user.role !== 'master' && user.role !== 'admin') fail('FORBIDDEN');
+    var rid = requestIdOf(body);
+    var result = body.result;
+    if (result !== 'pass' && result !== 'skip') fail('INVALID', '未知的登錄結果。');
+    var dup = findLogByRid(data, rid);
+    if (dup) return okResult(dupExtra(dup, dup.teamId), data, user);
+    return withLock(store, body, user, function (fresh, me) {
+      var dup2 = findLogByRid(fresh, rid);
+      if (dup2) return dupExtra(dup2, dup2.teamId);
+      var st = stationFor(fresh, me, body, 'game');
+      var team = teamAtStation(fresh, body.teamId, st);
+      var ts = appendLogRow(store, env, {
+        teamId: team.id, type: result === 'pass' ? 'game' : 'skip', tier: null,
+        detail: st.name + (result === 'skip' ? '（跳過）' : ''), score: 0, // 大地關不計分，只用來決定隊伍前往下一站
+        rid: rid, stationId: st.id, by: me.id
+      });
+      return { msg: '已登錄「' + team.name + '」' + (result === 'pass' ? '過關' : '跳過本關') + '：' + st.name, recordedAt: ts };
+    });
+  }
+
+  // 關主（該關）／管理員：登錄或修改食物關抽籤結果（待隊輔確認）
+  function actAssignFood(store, data, user, body, env) {
+    if (user.role !== 'master' && user.role !== 'admin') fail('FORBIDDEN');
+    var tier = body.tier;
+    if (tier !== 1 && tier !== 2 && tier !== 3) fail('INVALID', '請選擇籤種。');
+    var food = cleanText(body.foodName, MAX_TEXT, '食物名稱');
+    return withLock(store, body, user, function (fresh, me) {
+      var st = stationFor(fresh, me, body, 'food');
+      var team = teamAtStation(fresh, body.teamId, st);
+      var existing = pendingAssignment(fresh, team.id, st.id);
+      var at = formatTpe(env.now);
+      if (existing) {
+        store.update('assignments', existing.idx, COL.assignments.tier, tier);
+        store.update('assignments', existing.idx, COL.assignments.food, food);
+        store.update('assignments', existing.idx, COL.assignments.by, me.id);
+        store.update('assignments', existing.idx, COL.assignments.at, at);
+      } else {
+        var row = [];
+        row[COL.assignments.team] = team.id;
+        row[COL.assignments.station] = st.id;
+        row[COL.assignments.tier] = tier;
+        row[COL.assignments.food] = food;
+        row[COL.assignments.by] = me.id;
+        row[COL.assignments.at] = at;
+        row[COL.assignments.status] = 'pending';
+        store.append('assignments', row);
+      }
+      return { msg: (existing ? '已修改' : '已登錄') + '「' + team.name + '」的抽籤結果：' + TIER_NAMES[tier] + '籤，請隊輔上傳照片並確認完成。' };
+    });
+  }
+
+  // 管理員：食物關認定通過（免照片）／取消指派
+  function actAdminFood(store, data, user, body, env) {
+    requireRole(user, 'admin');
+    var sub = body.subAction;
+    if (sub !== 'pass' && sub !== 'cancel') fail('INVALID', '未知的指令。');
+    var rid = sub === 'pass' ? requestIdOf(body) : null;
+    if (rid) {
+      var dup = findLogByRid(data, rid);
+      if (dup) return okResult(dupExtra(dup, dup.teamId), data, user);
+    }
+    return withLock(store, body, user, function (fresh, me) {
+      if (rid) {
+        var dup2 = findLogByRid(fresh, rid);
+        if (dup2) return dupExtra(dup2, dup2.teamId);
+      }
+      var st = stationFor(fresh, me, body, 'food');
+      var teamId = typeof body.teamId === 'string' ? body.teamId.trim().toUpperCase() : '';
+      var team = findUser(fresh, teamId);
+      if (!team || team.role !== 'team') fail('INVALID', '找不到此小隊：' + (teamId || '（未指定）'));
+      var asg = pendingAssignment(fresh, team.id, st.id);
+      if (!asg) fail('NO_ASSIGNMENT', '「' + team.name + '」在「' + st.name + '」沒有待確認的抽籤結果。');
+      if (sub === 'cancel') {
+        store.update('assignments', asg.idx, COL.assignments.status, 'cancelled');
+        return { msg: '已取消「' + team.name + '」在「' + st.name + '」的抽籤結果。' };
+      }
+      teamAtStation(fresh, team.id, st);
+      var ts = appendLogRow(store, env, {
+        teamId: team.id, type: 'food', tier: asg.tier, detail: (asg.foodName || st.name) + '（總部認定通過）',
+        score: asg.tier, rid: rid, stationId: st.id, by: me.id
+      });
+      store.update('assignments', asg.idx, COL.assignments.status, 'done');
+      return { msg: '已認定「' + team.name + '」通過「' + st.name + '」。', recordedAt: ts };
+    });
+  }
+
+  // 管理員：取消／恢復大地關
+  function actSetStationStatus(store, data, user, body) {
+    requireRole(user, 'admin');
+    var status = body.status;
+    if (status !== 'active' && status !== 'cancelled') fail('INVALID', '未知的關卡狀態。');
+    return withLock(store, body, user, function (fresh) {
+      var st = stationFor(fresh, user, body, null);
+      if (st.type !== 'game') fail('INVALID', '只有大地關可以取消。');
+      if ((status === 'cancelled') === st.cancelled) return { msg: '「' + st.name + '」狀態未改變。' };
+      store.update('stations', st.idx, COL.stations.status, status);
+      return { msg: '「' + st.name + '」已' + (status === 'cancelled' ? '取消，所有隊伍將直接前往下一關。' : '恢復。') };
+    });
+  }
+
+  function actUpdateStation(store, data, user, body, env) {
+    requireRole(user, 'master');
+    var desc = cleanText(body.desc, MAX_DESC, '位置描述');
+    if (!desc) fail('INVALID', '請填寫位置地標描述（最多 ' + MAX_DESC + ' 字）。');
+    var url = typeof body.mapUrl === 'string' ? body.mapUrl.trim() : '';
+    if (!isAllowedMapUrl(url)) fail('INVALID', MSG.MAP_URL);
+    return withLock(store, body, user, function (fresh, me) {
+      var st = stationFor(fresh, me, body, null);
+      store.update('stations', st.idx, COL.stations.desc, desc);
+      store.update('stations', st.idx, COL.stations.mapUrl, url);
+      store.update('stations', st.idx, COL.stations.updatedAt, formatTpe(env.now, true));
+      return { msg: '關卡位置已更新！' };
+    });
+  }
+
+  function actAdminControl(store, data, user, body, env) {
+    requireRole(user, 'admin');
+    var sub = body.subAction;
+    if (sub !== 'start' && sub !== 'end') fail('INVALID', '未知的活動控制指令。');
+    return withLock(store, body, user, function (fresh) {
+      var cfg = fresh.config;
+      var C = COL.config;
+      if (sub === 'start') {
+        if (cfg.status === 'active') return { msg: '活動已在進行中。' };
+        if (cfg.status === 'pending' || cfg.startMs === null) store.update('config', 0, C.start, formatTpe(env.now));
+        store.update('config', 0, C.end, '');
+        store.update('config', 0, C.status, 'active');
+        return { msg: cfg.status === 'ended' ? '已重新開放回報（開始時間不變）。' : '活動已開始！' };
+      }
+      if (cfg.status === 'pending') fail('CLOSED', '活動尚未開始，無法結束。');
+      if (cfg.status === 'ended') return { msg: '活動已經結束。' };
+      store.update('config', 0, C.end, formatTpe(env.now));
+      store.update('config', 0, C.status, 'ended');
+      return { msg: '活動已結束，回報已鎖定。' };
+    });
+  }
+
+  function actAdminArrival(store, data, user, body, env) {
+    requireRole(user, 'admin');
+    var sub = body.subAction;
+    if (sub !== 'set' && sub !== 'clear') fail('INVALID', '未知的抵達登錄指令。');
+    var teamId = typeof body.teamId === 'string' ? body.teamId.trim().toUpperCase() : '';
+    return withLock(store, body, user, function (fresh) {
+      var team = findUser(fresh, teamId);
+      if (!team || team.role !== 'team') fail('INVALID', '找不到此小隊：' + (teamId || '（未指定）'));
+      if (sub === 'clear') {
+        store.update('users', team.idx, COL.users.arrival, '');
+        return { msg: '已清除「' + team.name + '」的抵達紀錄。' };
+      }
+      var cfg = fresh.config;
+      if (cfg.status === 'pending') fail('CLOSED', '活動尚未開始，無法登錄抵達。');
+      if (team.arrivalMs !== null) {
+        fail('ALREADY_ARRIVED', '「' + team.name + '」已登錄抵達（' + formatTpe(team.arrivalMs, true) + '），如需修改請先清除。');
+      }
+      if (cfg.startMs === null) fail('INVALID', 'Config 表缺少活動開始時間，請洽系統管理者。');
+      var manual = !(body.time === undefined || body.time === null || body.time === '');
+      var t = env.now;
+      if (manual) {
+        t = parseTpe(body.time);
+        if (t === null) fail('INVALID', '抵達時間格式需為 yyyy-MM-dd HH:mm（台灣時間）。');
+      }
+      var upperMs = cfg.status === 'ended' && cfg.endMs !== null ? Math.min(cfg.endMs, env.now) : env.now;
+      if (t < cfg.startMs || t > upperMs) {
+        if (!manual) fail('INVALID', '活動已結束，請改用「手動補登」輸入實際抵達時間。');
+        fail('INVALID', '抵達時間必須介於活動開始（' + formatTpe(cfg.startMs) + '）與' + (cfg.status === 'ended' ? '活動結束' : '現在') + '之間。');
+      }
+      store.update('users', team.idx, COL.users.arrival, formatTpe(t));
+      return { msg: '已登錄「' + team.name + '」抵達：' + formatTpe(t, true) };
+    });
+  }
+
+  function actResetPassword(store, data, user, body) {
+    requireRole(user, 'admin');
+    var targetId = typeof body.targetId === 'string' ? body.targetId.trim().toUpperCase() : '';
+    var pwd = typeof body.newPwd === 'string' ? body.newPwd.trim() : '';
+    if (!/^\S{4,32}$/.test(pwd)) fail('INVALID', '新密碼需為 4–32 個字元，且不可包含空白。');
+    return withLock(store, body, user, function (fresh) {
+      var target = findUser(fresh, targetId);
+      if (!target) fail('INVALID', '找不到該帳號：' + (targetId || '（未指定）'));
+      store.update('users', target.idx, COL.users.pwd, pwd);
+      return { msg: '已重置 ' + target.id + ' 的密碼，請將新密碼告知該帳號使用者。' };
+    });
+  }
+
+  function actVoidLog(store, data, user, body) {
+    requireRole(user, 'admin');
+    var rid = requestIdOf(body);
+    if (typeof body['void'] !== 'boolean') fail('INVALID', '作廢參數錯誤。');
+    var makeVoid = body['void'];
+    return withLock(store, body, user, function (fresh) {
+      var log = findLogByRid(fresh, rid);
+      if (!log) fail('INVALID', '找不到這筆紀錄。');
+      if (makeVoid) {
+        if (!log.voided) store.update('logs', log.idx, COL.logs.voided, 'VOID');
+        return { msg: '已作廢這筆紀錄。' };
+      }
+      if (!log.voided) return { msg: '這筆紀錄目前是有效的。' };
+      var others = validLogsOf(fresh, log.teamId);
+      var st = findStation(fresh, log.stationId);
+      if (st && others.some(function (l) { return completesStation(l, st); }) && completesStation(log, st)) {
+        fail('DUPLICATE_STATION', '無法恢復：此隊伍在同一關卡已有其他有效紀錄。');
+      }
+      if (log.type === 'penalty' && others.some(function (l) { return l.type === 'penalty'; })) {
+        fail('LIMIT', '無法恢復：此隊伍已有其他有效的代步罰則。');
+      }
+      store.update('logs', log.idx, COL.logs.voided, '');
+      return { msg: '已恢復這筆紀錄。' };
+    });
+  }
+
+  // 管理員：一鍵重置活動資料（無法復原）
+  //   清除：所有回報紀錄、籤種登錄、各隊抵達時間；取消的大地關恢復；活動回到「未開始」
+  //   保留：帳號、密碼、隊名、成員、關卡、位置、折抵與罰時設定
+  var RESET_CONFIRM = '重置';
+  function actResetEvent(store, data, user, body) {
+    requireRole(user, 'admin');
+    if (body.confirm !== RESET_CONFIRM) fail('INVALID', '請輸入「' + RESET_CONFIRM + '」兩個字以確認重置。');
+    return withLock(store, body, user, function (fresh) {
+      var cleared = {
+        logs: fresh.logs.length,
+        assignments: fresh.assignments.length,
+        arrivals: 0,
+        restoredStations: 0,
+        wasStatus: fresh.config.status
+      };
+      store.clear('logs');
+      store.clear('assignments');
+      fresh.users.forEach(function (u) {
+        if (u.role === 'team' && u.arrivalMs !== null) {
+          store.update('users', u.idx, COL.users.arrival, '');
+          cleared.arrivals++;
+        }
+      });
+      fresh.stations.forEach(function (s) {
+        if (s.cancelled) {
+          store.update('stations', s.idx, COL.stations.status, 'active');
+          cleared.restoredStations++;
+        }
+      });
+      store.update('config', 0, COL.config.status, 'pending');
+      store.update('config', 0, COL.config.start, '');
+      store.update('config', 0, COL.config.end, '');
+      return {
+        msg: '已重置活動資料：清除 ' + cleared.logs + ' 筆紀錄、' + cleared.assignments + ' 筆籤種登錄、' + cleared.arrivals +
+          ' 隊抵達時間' + (cleared.restoredStations ? '；' + cleared.restoredStations + ' 個取消的大地關已恢復' : '') + '。活動已回到「未開始」。',
+        cleared: cleared
+      };
+    });
+  }
+
+  var ACTIONS = {
+    login: actLogin, sync: actSync, submitReport: actSubmitReport, updateStation: actUpdateStation,
+    stationResult: actStationResult, assignFood: actAssignFood, adminFood: actAdminFood, setStationStatus: actSetStationStatus,
+    adminControl: actAdminControl, adminArrival: actAdminArrival, resetPassword: actResetPassword, voidLog: actVoidLog,
+    resetEvent: actResetEvent
+  };
+
+  // store 介面：read()、append(table, row)、update(table, idx, col, value)、clear(table)、tryLock()、unlock()、uploadPhoto(dataUrl, filename)
+  function handle(store, body, env) {
+    try {
+      if (!body || typeof body !== 'object' || Array.isArray(body)) fail('INVALID', MSG.BAD_REQUEST);
+      var data = normalize(store.read());
+      var user = authenticate(data, body);
+      var action = typeof body.action === 'string' && has(ACTIONS, body.action) ? ACTIONS[body.action] : null;
+      if (!action) fail('INVALID', '未知的操作指令。');
+      var res = action(store, data, user, body, env);
+      res.serverTime = formatTpe(env.now);
+      return res;
+    } catch (e) {
+      if (e instanceof CoreError) return { ok: false, code: e.code, msg: e.msg, serverTime: formatTpe(env.now) };
+      throw e;
+    }
+  }
+
+  return {
+    TIER_NAMES: TIER_NAMES, COL: COL, MSG: MSG,
+    LIMITS: { MAX_TEXT: MAX_TEXT, MAX_DESC: MAX_DESC },
+    handle: handle, normalize: normalize, computeStandings: computeStandings, progressOf: progressOf,
+    isAllowedMapUrl: isAllowedMapUrl, isDrivePhotoUrl: isDrivePhotoUrl,
+    formatTpe: formatTpe, parseTpe: parseTpe
+  };
+})();
+// @@SHARED-CORE-END
+  </script>
+
+  <script>
+// @@FRONT-LOGIC-BEGIN
+// 前端純邏輯（不操作畫面，可在 Node 測試中直接執行）
+var FrontLogic = (function () {
+  'use strict';
+
+  var ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' };
+
+  // 所有要用 innerHTML 插入畫面的資料，都必須先經過這個函式
+  function escapeHtml(v) {
+    return String(v === null || v === undefined ? '' : v).replace(/[&<>"'`]/g, function (c) { return ESC[c]; });
+  }
+  function safeMapHref(u) { return CoreApi.isAllowedMapUrl(u) ? u : ''; }
+  function safePhotoHref(u) { return CoreApi.isDrivePhotoUrl(u) ? u : ''; }
+
+  // 每份表單／每次操作一個回報編號；網路重送時沿用同一編號，伺服器就不會重複計分
+  function newRequestId(randomBytes) {
+    var bytes = [];
+    if (randomBytes) {
+      bytes = randomBytes(12);
+    } else if (typeof crypto !== 'undefined' && crypto && crypto.getRandomValues) {
+      bytes = Array.prototype.slice.call(crypto.getRandomValues(new Uint8Array(12)));
+    } else {
+      for (var i = 0; i < 12; i++) bytes.push(Math.floor(Math.random() * 256));
+    }
+    return 'R' + Date.now().toString(36) + '-' + bytes.map(function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join('');
+  }
+
+  // 'yyyy-MM-dd HH:mm:ss' → 'HH:mm:ss'
+  function timeOf(s) {
+    s = s ? String(s) : '';
+    return s.length >= 19 ? s.slice(11, 19) : s;
+  }
+
+  // 單機模擬模式的初始資料（格式與 Google 試算表的列相同）。密碼只用於本機測試，正式環境的密碼由 setupSheets 隨機產生。
+  function mockSeed() {
+    return {
+      users: [
+        ['ADMIN', 'admin', 'admin', '總部控制中心', '', ''],
+        ['T1', '1111', 'team', 'Blue Gigabytes', 'Alice, Bob, Charlie, 隊輔: Dave', ''],
+        ['T2', '2222', 'team', 'Angular Avengers', 'Eve, Frank, Grace, 隊輔: Heidi', ''],
+        ['T3', '3333', 'team', 'Pixel Pioneers', 'Ivy, Jack, Kevin, 隊輔: Leo', ''],
+        ['T4', '4444', 'team', '第 4 隊', '隊員A, 隊員B, 隊員C, 隊輔: 待填', ''],
+        ['T5', '5555', 'team', '第 5 隊', '隊員A, 隊員B, 隊員C, 隊輔: 待填', ''],
+        ['T6', '6666', 'team', '第 6 隊', '隊員A, 隊員B, 隊員C, 隊輔: 待填', ''],
+        ['T7', '7777', 'team', '第 7 隊', '隊員A, 隊員B, 隊員C, 隊輔: 待填', ''],
+        ['T8', '8888', 'team', '第 8 隊', '隊員A, 隊員B, 隊員C, 隊輔: 待填', ''],
+        ['T9', '9999', 'team', '第 9 隊', '隊員A, 隊員B, 隊員C, 隊輔: 待填', ''],
+        ['T10', '1010', 'team', '第 10 隊', '隊員A, 隊員B, 隊員C, 隊輔: 待填', ''],
+        ['M1', 'm1', 'master', '關主 阿凱（第一關）', 'S1', ''],
+        ['M2', 'm2', 'master', '關主 小美（第二關）', 'S2', ''],
+        ['M3', 'm3', 'master', '關主 大衛（第三關）', 'S3', ''],
+        ['M4', 'm4', 'master', '關主 小芳（飲料）', 'F1', ''],
+        ['M5', 'm5', 'master', '關主 阿豪（主食）', 'F2', ''],
+        ['M6', 'm6', 'master', '關主 小琪（甜點）', 'F3', '']
+      ],
+      config: ['pending', '', '', 10, 30],
+      stations: [
+        ['S1', '第一關：拼圖王', 'game', 'M1', 'active', '大勇區 P2 倉庫前大公仔旁', 'https://www.google.com/maps?q=22.6200,120.2815', ''],
+        ['F1', '食物關：飲料', 'food', 'M4', 'active', '', '', ''],
+        ['S2', '第二關：記憶連連看', 'game', 'M2', 'active', '大義公園大樹下陰涼處', 'https://www.google.com/maps?q=22.6186,120.2842', ''],
+        ['F2', '食物關：主食', 'food', 'M5', 'active', '', '', ''],
+        ['S3', '第三關：計步狂甩王', 'game', 'M3', 'active', '鹽埕埔捷運站 2 號出口廣場', 'https://www.google.com/maps?q=22.6234,120.2835', ''],
+        ['F3', '食物關：甜點', 'food', 'M6', 'active', '', '', '']
+      ],
+      logs: [],
+      assignments: []
+    };
+  }
+
+  // 單機模擬的資料存取層：與 Code.gs 的 SheetStore 介面相同，讓兩邊跑同一份共用核心
+  function createMockStore(seed) {
+    var raw = seed || mockSeed();
+    return {
+      raw: raw,
+      read: function () { return JSON.parse(JSON.stringify(raw)); },
+      append: function (table, row) {
+        var copy = [];
+        for (var i = 0; i < row.length; i++) copy.push(row[i] === undefined ? '' : row[i]);
+        raw[table].push(copy);
+      },
+      update: function (table, idx, col, value) {
+        if (table === 'config') raw.config[col] = value;
+        else raw[table][idx][col] = value;
+      },
+      clear: function (table) { raw[table] = []; },
+      tryLock: function () { return true; },
+      unlock: function () {},
+      uploadPhoto: function () { return ''; } // 單機模式不上傳照片
+    };
+  }
+
+  var TIER_ICON = { 1: '👿', 2: '🧍', 3: '👼' };
+  function tierLabel(tier) {
+    return (TIER_ICON[tier] || '') + (CoreApi.TIER_NAMES[tier] || '?') + '籤（+' + tier + ' 分）';
+  }
+
+  function stationById(stations, id) {
+    for (var i = 0; i < (stations || []).length; i++) if (stations[i].id === id) return stations[i];
+    return null;
+  }
+
+  // 回報紀錄的顯示文字（回傳純文字，畫面插入前仍需跳脫）
+  function describeLog(log, stations) {
+    var st = stationById(stations, log.stationId);
+    var name = st ? st.name : (log.taskDetail || log.stationId);
+    if (log.type === 'food') return { icon: '🍽️', title: name + '｜' + (TIER_ICON[log.tier] || '') + (CoreApi.TIER_NAMES[log.tier] || '?') + '籤', sub: log.taskDetail, value: '+' + log.score + ' 分' };
+    if (log.type === 'game') return { icon: '🎯', title: name, sub: '大地遊戲', value: '過關' };
+    if (log.type === 'skip') return { icon: '⏭️', title: name, sub: '大地遊戲', value: '跳過' };
+    if (log.type === 'temp') return { icon: '⭐', title: log.taskDetail, sub: '臨時任務', value: '+' + log.score + ' 分' };
+    if (log.type === 'penalty') return { icon: '🛴', title: '使用代步工具', sub: '罰則', value: '+' + log.penalty + ' 分鐘' };
+    return { icon: '❔', title: log.taskDetail || log.type, sub: '', value: '' };
+  }
+
+  var STATE_TEXT = { done: '✅', skipped: '⏭️', cancelled: '🚫', current: '👉', todo: '⬜' };
+  function progressItems(progress, stations) {
+    return (progress ? progress.stations : []).map(function (p) {
+      var st = stationById(stations, p.id);
+      return { id: p.id, state: p.state, icon: STATE_TEXT[p.state] || '⬜', name: st ? st.name : p.id, type: st ? st.type : '' };
+    });
+  }
+
+  function rankLabel(rank) {
+    if (rank === 1) return '🥇 1';
+    if (rank === 2) return '🥈 2';
+    if (rank === 3) return '🥉 3';
+    return rank === null || rank === undefined ? '—' : String(rank);
+  }
+
+  // 位置異動提示：比對「目前關卡」的位置有沒有被關主改過。
+  //   seen：上次確認過的 { stationId, mark }（存在手機瀏覽器）；st：目前關卡（沒有時為 null）
+  //   回傳 { notify, seen }：notify＝是否顯示「位置已更新」；seen＝要存回去的新狀態
+  //   規則：第一次看到某一關 → 不提示，記錄；同一關的標記改變（含從空白補填）→ 提示，seen 不變（直到按「知道了」）
+  function locationMark(st) { return st ? [st.updatedAt || '', st.desc || '', st.mapUrl || ''].join('') : ''; }
+  function locationNotice(seen, st) {
+    if (!st) return { notify: false, seen: seen || null };
+    var mark = locationMark(st);
+    if (!seen || seen.stationId !== st.id) return { notify: false, seen: { stationId: st.id, mark: mark } };
+    return { notify: seen.mark !== mark, seen: seen };
+  }
+  function acknowledgeLocation(st) { return st ? { stationId: st.id, mark: locationMark(st) } : null; }
+
+  // 工作階段編號：每次登入／登出遞增；回應抵達時編號已改變就丟棄（避免舊帳號的回應蓋掉新帳號的畫面）
+  function createSessionGuard() {
+    var epoch = 0;
+    return {
+      current: function () { return epoch; },
+      next: function () { epoch++; return epoch; },
+      isStale: function (e) { return e !== epoch; }
+    };
+  }
+
+  return {
+    escapeHtml: escapeHtml, safeMapHref: safeMapHref, safePhotoHref: safePhotoHref,
+    newRequestId: newRequestId, timeOf: timeOf, mockSeed: mockSeed, createMockStore: createMockStore,
+    describeLog: describeLog, progressItems: progressItems, tierLabel: tierLabel, stationById: stationById,
+    rankLabel: rankLabel, createSessionGuard: createSessionGuard,
+    locationNotice: locationNotice, acknowledgeLocation: acknowledgeLocation
+  };
+})();
+// @@FRONT-LOGIC-END
+  </script>
+
+  <script>
+    // =========================================================================
+    // ⚙️ 環境設定：
+    // 若 GAS_URL 維持空字串 ""，系統將自動以「單機模擬模式 (Mock Mode)」運作，方便直接打開 HTML 測試。
+    // 當部署完 Google Apps Script 後，請將 Web App 網址（https://script.google.com/macros/s/.../exec）貼入 GAS_URL。
+    // =========================================================================
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbyj_NKQK2-U41BcQDhwMLDmIRNMdVxfUEKhGO4K1medwgFpCVyXSvo5LM26JmrEOoq7/exec";
+
+    const POLL_MS = 30000;          // 自動同步間隔（毫秒）
+    const REQUEST_TIMEOUT_MS = 30000;
+    const AUTH_STORAGE_KEY = 'ycfood.auth.v1';
+    const LOC_STORAGE_PREFIX = 'ycfood.loc.v1.';   // 位置異動提示：每個帳號各自記錄已確認的位置
+    const POLL_VIEWS = ['view-dashboard', 'view-master', 'view-admin'];
+    const NETWORK_MSG = '網路連線異常或伺服器回應逾時，請確認網路後再送出一次（同一筆回報不會重複計分）。';
+
+    const isLiveMode = () => GAS_URL.trim().startsWith('https://');
+    const esc = FrontLogic.escapeHtml;
+    const $ = (id) => document.getElementById(id);
+    const setText = (id, v) => { $(id).textContent = v === null || v === undefined ? '' : String(v); };
+
+    const state = {
+      auth: null, user: null, db: null, view: 'view-login',
+      busy: false, syncing: false, writeSeq: 0,
+      reportRid: null, penaltyRid: null, confirmRid: null, headerHtml: '',
+      opRids: {}  // 關主／管理員操作的回報編號（失敗重送時沿用）
+    };
+    const session = FrontLogic.createSessionGuard();
+    const mockStore = isLiveMode() ? null : FrontLogic.createMockStore();
+
+    // --- 帳密儲存（記住此裝置） ---
+    function saveAuth(auth) {
+      try { localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(auth)); } catch (e) { /* 無法儲存時僅保留在記憶體 */ }
+    }
+    function loadAuth() {
+      try {
+        const a = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || 'null');
+        return a && typeof a.code === 'string' && typeof a.pwd === 'string' ? a : null;
+      } catch (e) { return null; }
+    }
+    function clearAuth() {
+      try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch (e) { /* 忽略 */ }
+    }
+
+    // --- 統一呼叫後端 API（或單機模擬） ---
+    async function callApi(payload, opts = {}) {
+      const body = Object.assign({}, payload);
+      if (payload.action !== 'login' && state.auth) {
+        body.code = state.auth.code;
+        body.pwd = state.auth.pwd;
+      }
+      const seq = state.writeSeq;
+      const epoch = session.current();
+      let res;
+      if (!isLiveMode()) {
+        try {
+          res = CoreApi.handle(mockStore, JSON.parse(JSON.stringify(body)), { now: Date.now() });
+        } catch (err) {
+          console.error(err);
+          res = { ok: false, code: 'ERROR', msg: CoreApi.MSG.ERROR };
+        }
+      } else {
+        if (!opts.silent) setHeaderStatus('<i class="fa-solid fa-spinner fa-spin"></i> 同步中...', true);
+        let timer = null;
+        try {
+          const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          if (ctrl) timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+          const r = await fetch(GAS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(body),
+            cache: 'no-store',
+            signal: ctrl ? ctrl.signal : undefined
+          });
+          res = await r.json();
+        } catch (err) {
+          res = { ok: false, code: 'NETWORK', msg: NETWORK_MSG };
+        } finally {
+          if (timer) clearTimeout(timer);
+          if (!opts.silent && !session.isStale(epoch)) setHeaderStatus(state.headerHtml);
+        }
+      }
+      if (!res || typeof res !== 'object') res = { ok: false, code: 'NETWORK', msg: NETWORK_MSG };
+      // 回應抵達前已登出或換帳號：整個丟棄，不更新畫面、也不登出目前的帳號
+      if (session.isStale(epoch)) return { ok: false, code: 'STALE', stale: true, msg: '' };
+      // 自動同步的結果若比之後的寫入還舊，就丟棄，避免畫面倒退
+      const staleSync = opts.silent && seq !== state.writeSeq;
+      if (res.ok && !staleSync) {
+        if (res.db) state.db = res.db;
+        if (res.user) state.user = res.user;
+      }
+      if (res.code === 'AUTH' && payload.action !== 'login') {
+        forceLogout('密碼已變更或登入已失效，請重新登入。');
+      }
+      updateEventBanner();
+      return res;
+    }
+
+    function setHeaderStatus(html, temporary) {
+      if (!temporary) state.headerHtml = html;
+      $('header_status').innerHTML = html;
+    }
+
+    // 需要使用者看到結果的錯誤（已過期的回應與登入失效不再另外提示）
+    function showError(res, fallback) {
+      if (res.stale || res.code === 'AUTH') return;
+      alert(res.msg || fallback || '操作失敗');
+    }
+
+    // --- 前端照片自動壓縮轉 Base64 ---
+    function compressImageToBase64(file, maxWidth = 1024, quality = 0.7) {
+      return new Promise((resolve, reject) => {
+        if (!file) return resolve('');
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('read'));
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onerror = () => reject(new Error('decode'));
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+            canvas.width = width;
+            canvas.height = height;
+            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // --- 系統時間時鐘（手機時間，僅供參考） ---
+    setInterval(() => {
+      const timeField = $('current_time');
+      if (timeField) timeField.value = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+    }, 1000);
+
+    function updateEventBanner() {
+      const banner = $('event_banner');
+      if (!state.db) {
+        banner.className = 'bg-gray-100 text-gray-600 text-xs font-bold px-4 py-2 text-center border-b border-gray-200';
+        banner.innerHTML = '<i class="fa-solid fa-circle-info mr-1"></i> 登入後顯示活動狀態';
+        return;
+      }
+      const cfg = state.db.config;
+      if (cfg.status === 'pending') {
+        banner.className = 'bg-amber-100 text-amber-800 text-xs font-bold px-4 py-2 text-center border-b border-amber-200';
+        banner.innerHTML = '<i class="fa-solid fa-hourglass-start mr-1"></i> 活動尚未開始，目前暫停回報';
+      } else if (cfg.status === 'active') {
+        banner.className = 'bg-green-100 text-green-800 text-xs font-bold px-4 py-2 text-center border-b border-green-200';
+        banner.innerHTML = '<i class="fa-solid fa-bolt mr-1"></i> 活動進行中 (開始於 ' + esc(cfg.startTime) + ')';
+      } else {
+        banner.className = 'bg-red-100 text-red-800 text-xs font-bold px-4 py-2 text-center border-b border-red-200';
+        banner.innerHTML = '<i class="fa-solid fa-lock mr-1"></i> 活動已結束 (' + esc(cfg.endTime) + ')，系統已鎖定';
+      }
+    }
+
+    function switchView(viewId) {
+      ['view-login', 'view-dashboard', 'view-report', 'view-admin', 'view-master'].forEach(id => $(id).classList.add('hidden'));
+      $(viewId).classList.remove('hidden');
+      state.view = viewId;
+      updateEventBanner();
+      renderCurrent(false);
+      if (POLL_VIEWS.includes(viewId) && autoSyncEnabled()) refresh(true);
+    }
+
+    function renderCurrent(fromPoll) {
+      if (state.view === 'view-dashboard') renderDashboard();
+      else if (state.view === 'view-admin') renderAdmin();
+      else if (state.view === 'view-master') renderMaster(fromPoll);
+    }
+
+    // --- 同步（含 30 秒自動同步；頁面在背景時暫停；小隊抵達終點後停止） ---
+    // 小隊抵達後不再自動同步（節省 Apps Script 的同時執行數）；按「重新整理」仍可手動同步
+    function autoSyncEnabled() {
+      return !(state.user && state.user.role === 'team' && state.user.arrived);
+    }
+    async function refresh(silent) {
+      if (!state.auth || state.syncing) return;
+      state.syncing = true;
+      try {
+        const res = await callApi({ action: 'sync' }, { silent: !!silent });
+        if (res.ok) renderCurrent(true);
+        else if (!silent) showError(res, '同步失敗');
+      } finally {
+        state.syncing = false;
+      }
+    }
+    setInterval(() => {
+      if (!document.hidden && POLL_VIEWS.includes(state.view) && !state.busy && autoSyncEnabled()) refresh(true);
+    }, POLL_MS);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && POLL_VIEWS.includes(state.view) && autoSyncEnabled()) refresh(true);
+    });
+
+    function setBusy(busy, btnId) {
+      state.busy = busy;
+      if (btnId && $(btnId)) $(btnId).disabled = busy;
+    }
+
+    // --- 登入與登出 ---
+    function showLoginError(msg) {
+      const el = $('login_error');
+      el.textContent = msg;
+      el.classList.toggle('hidden', !msg);
+    }
+
+    async function handleLogin() {
+      if (state.busy) return;
+      const code = $('login_code').value.trim().toUpperCase();
+      const pwd = $('login_pwd').value.trim();
+      if (!code || !pwd) { showLoginError('請輸入帳號代碼與密碼'); return; }
+      setBusy(true, 'btn_login');
+      session.next(); // 新的工作階段：之前送出、尚未回應的請求一律作廢
+      const res = await callApi({ action: 'login', code, pwd });
+      setBusy(false, 'btn_login');
+      if (res.stale) return;
+      if (res.ok && res.user) {
+        state.auth = { code, pwd };
+        if ($('login_remember').checked) saveAuth(state.auth); else clearAuth();
+        enterApp();
+      } else {
+        showLoginError(res.msg || '代碼或密碼錯誤，請重新輸入！');
+      }
+    }
+
+    function enterApp() {
+      showLoginError('');
+      $('login_pwd').value = '';
+      $('btn_header_logout').classList.remove('hidden');
+      const u = state.user;
+      if (u.role === 'admin') {
+        setHeaderStatus('<i class="fa-solid fa-crown"></i> 總部權限');
+        switchView('view-admin');
+      } else if (u.role === 'master') {
+        setHeaderStatus('<i class="fa-solid fa-flag"></i> ' + esc(u.name));
+        switchView('view-master');
+      } else {
+        setHeaderStatus('<i class="fa-solid fa-user"></i> ' + esc(u.name));
+        switchView('view-dashboard');
+      }
+    }
+
+    function resetSession() {
+      session.next();
+      state.auth = null; state.user = null; state.db = null;
+      state.reportRid = null; state.penaltyRid = null; state.confirmRid = null; state.opRids = {};
+      state.busy = false; state.syncing = false;
+      $('login_code').value = '';
+      $('login_pwd').value = '';
+      $('btn_header_logout').classList.add('hidden');
+      $('modal_next_station').classList.add('hidden');
+      setHeaderStatus('<div class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div> 系統連線中');
+      switchView('view-login');
+    }
+
+    function logout() {
+      clearAuth();
+      resetSession();
+      showLoginError('');
+    }
+
+    function forceLogout(msg) {
+      clearAuth();
+      resetSession();
+      showLoginError(msg);
+    }
+
+    // --- 小隊儀表板 ---
+    function myValidLogs() {
+      if (!state.db || !state.user) return [];
+      return state.db.logs.filter(l => l.teamId === state.user.id && !l.voided);
+    }
+    function stationOf(id) { return state.db ? FrontLogic.stationById(state.db.stations, id) : null; }
+
+    // 位置異動提示：已確認的位置記在手機瀏覽器（無法儲存時只在本分頁有效）
+    const memSeen = {};
+    function loadSeen(teamId) {
+      try { return JSON.parse(localStorage.getItem(LOC_STORAGE_PREFIX + teamId) || 'null'); } catch (e) { return memSeen[teamId] || null; }
+    }
+    function saveSeen(teamId, seen) {
+      memSeen[teamId] = seen;
+      try { localStorage.setItem(LOC_STORAGE_PREFIX + teamId, JSON.stringify(seen)); } catch (e) { /* 只保留在記憶體 */ }
+    }
+    function renderLocationNotice(u, st) {
+      const r = FrontLogic.locationNotice(loadSeen(u.id), st && (st.desc || st.mapUrl) ? st : null);
+      saveSeen(u.id, r.seen);
+      $('dash_loc_notice').classList.toggle('hidden', !r.notify);
+      if (r.notify) setText('dash_loc_notice_time', st.updatedAt ? '（' + st.updatedAt.slice(0, 5) + '）' : '');
+    }
+    function acknowledgeLocation() {
+      const u = state.user;
+      const st = u && u.progress.currentStationId ? stationOf(u.progress.currentStationId) : null;
+      if (u) saveSeen(u.id, FrontLogic.acknowledgeLocation(st));
+      $('dash_loc_notice').classList.add('hidden');
+    }
+
+    function fillStationCard(prefix, st) {
+      setText(prefix + '_name', st.name);
+      setText(prefix + '_desc', st.desc || (st.mapUrl ? '' : '（位置尚未公布，活動開始後才會顯示）'));
+      $(prefix + '_pin').classList.remove('hidden');
+      const href = FrontLogic.safeMapHref(st.mapUrl);
+      const link = $(prefix + '_map');
+      link.classList.toggle('hidden', !href);
+      link.href = href || '#';
+      return !!href;
+    }
+
+    function renderDashboard() {
+      const u = state.user, db = state.db;
+      if (!u || u.role !== 'team' || !db) return;
+      setText('dash_team_name', u.name);
+      $('dash_members').innerHTML = u.members.map(m =>
+        '<span class="bg-blue-100 text-blue-800 px-2 py-1 rounded border border-blue-200">' + esc(m) + '</span>'
+      ).join('');
+
+      const score = myValidLogs().reduce((s, l) => s + l.score, 0);
+      setText('dash_score', score);
+      setText('dash_time', score * db.config.creditPerPoint);
+
+      const badge = $('dash_arrival_badge');
+      badge.textContent = u.arrived ? '🏁 已抵達終點' : '進行中';
+      badge.className = 'shrink-0 text-xs font-bold px-2.5 py-0.5 rounded-full ' + (u.arrived ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800');
+
+      // 闖關進度
+      const p = u.progress;
+      setText('dash_progress_count', p.completed + ' / ' + p.total);
+      const STATE_CLASS = { done: 'text-green-800', skipped: 'text-gray-500', cancelled: 'text-gray-400 line-through', current: 'text-blue-800 font-black', todo: 'text-gray-500' };
+      $('dash_progress').innerHTML = FrontLogic.progressItems(p, db.stations).map(it =>
+        '<li class="' + esc(STATE_CLASS[it.state]) + '">' + esc(it.icon + ' ' + it.name + (it.state === 'cancelled' ? '（已取消）' : it.state === 'skipped' ? '（跳過）' : '')) + '</li>'
+      ).join('');
+      // 6 格步驟條：已完成填滿、目前關卡外框高亮、跳過與取消為灰色
+      const STEP_CLASS = { done: 'bg-blue-600 border-blue-600', skipped: 'bg-gray-400 border-gray-400', cancelled: 'bg-gray-200 border-gray-300', current: 'bg-white border-blue-600 border-2', todo: 'bg-gray-200 border-gray-200' };
+      $('dash_steps').innerHTML = FrontLogic.progressItems(p, db.stations).map(it =>
+        '<div class="h-2 border ' + esc(STEP_CLASS[it.state]) + '" title="' + esc(it.name) + '"></div>'
+      ).join('');
+
+      // 目前關卡
+      const st = p.currentStationId ? stationOf(p.currentStationId) : null;
+      const active = db.config.status === 'active' && !u.arrived;
+      $('dash_game_hint').classList.add('hidden');
+      $('dash_food_box').classList.add('hidden');
+      if (st) {
+        setText('dash_current_tag', (st.type === 'food' ? '🍽️ 食物關' : '🎯 大地關') + '｜目前關卡');
+        const hasMap = fillStationCard('dash_current', st);
+        $('dash_map_missing').classList.toggle('hidden', hasMap);
+        setText('dash_current_updated', st.updatedAt ? '關主更新於 ' + st.updatedAt : '');
+        renderLocationNotice(u, st);
+        if (active && st.type === 'game') $('dash_game_hint').classList.remove('hidden');
+        if (active && st.type === 'food') {
+          $('dash_food_box').classList.remove('hidden');
+          const a = u.assignment;
+          $('dash_food_waiting').classList.toggle('hidden', !!a);
+          $('dash_food_assigned').classList.toggle('hidden', !a);
+          if (a) {
+            setText('dash_food_tier', FrontLogic.tierLabel(a.tier));
+            setText('dash_food_name', a.foodName || st.name);
+          }
+        }
+      } else {
+        $('dash_loc_notice').classList.add('hidden');
+        setText('dash_current_tag', '🎉 完成');
+        setText('dash_current_name', p.total ? '已完成所有關卡！' : '目前沒有可進行的關卡');
+        setText('dash_current_desc', '請前往終點集合，並由總部登錄抵達。');
+        $('dash_current_pin').classList.add('hidden');
+        $('dash_current_map').classList.add('hidden');
+        $('dash_map_missing').classList.add('hidden');
+        setText('dash_current_updated', '');
+      }
+
+      // 代步申報
+      const btnPenalty = $('btn_penalty');
+      if (p.penaltyUsed) {
+        setText('dash_penalty_text', '本隊已申報使用代步工具（+' + db.config.penaltyMinutes + ' 分鐘）');
+        btnPenalty.textContent = '已申報';
+        btnPenalty.disabled = true;
+      } else {
+        setText('dash_penalty_text', '如有使用腳踏車／滑板車，總時間加罰 ' + db.config.penaltyMinutes + ' 分鐘（每隊一次）');
+        btnPenalty.textContent = '申報';
+        btnPenalty.disabled = !active;
+      }
+
+      // 臨時任務
+      const btnReport = $('btn_go_report');
+      const lockHint = $('dash_lock_hint');
+      let lockMsg = '';
+      if (db.config.status === 'pending') lockMsg = '⚠️ 活動尚未開始，暫時無法回報';
+      else if (db.config.status === 'ended') lockMsg = '⛔ 活動已經結束，系統已關閉回報功能';
+      else if (u.arrived) lockMsg = '🏁 本隊已抵達終點，無法再新增回報';
+      btnReport.disabled = !!lockMsg;
+      lockHint.textContent = lockMsg;
+      lockHint.classList.toggle('hidden', !lockMsg);
+    }
+
+    async function declarePenalty() {
+      if (state.busy || !state.db) return;
+      const min = state.db.config.penaltyMinutes;
+      if (!confirm('確認申報本隊有使用代步工具？\n總時間將加罰 ' + min + ' 分鐘，每隊只能申報一次。')) return;
+      if (!state.penaltyRid) state.penaltyRid = FrontLogic.newRequestId();
+      setBusy(true, 'btn_penalty');
+      state.writeSeq++;
+      const res = await callApi({ action: 'submitReport', requestId: state.penaltyRid, type: 'penalty' });
+      setBusy(false, 'btn_penalty');
+      if (res.stale) return;
+      if (res.ok) {
+        state.penaltyRid = null;
+        alert(res.duplicate ? res.msg : '已申報代步工具罰時。');
+      } else {
+        showError(res, '申報失敗');
+      }
+      renderDashboard();
+    }
+
+    // 食物關：隊輔上傳照片並確認完成（照片必填）
+    async function confirmFood() {
+      if (state.busy) return;
+      const input = $('food_confirm_photo');
+      const file = input.files && input.files[0];
+      if (!file) { alert('請先選擇一張照片（必填）。照片有問題時請聯絡總部協助。'); return; }
+      if (!state.confirmRid) state.confirmRid = FrontLogic.newRequestId();
+      setBusy(true, 'btn_food_confirm');
+      try {
+        let photo;
+        try {
+          photo = await compressImageToBase64(file);
+        } catch (e) {
+          alert('無法讀取這張照片，請改選其他照片。');
+          return;
+        }
+        state.writeSeq++;
+        const res = await callApi({ action: 'submitReport', requestId: state.confirmRid, type: 'foodConfirm', photoBase64: photo });
+        if (res.stale) return;
+        if (!res.ok) {
+          showError(res, '確認失敗');
+          if (res.code === 'CHANGED' || res.code === 'NO_ASSIGNMENT' || res.code === 'NOT_CURRENT') { state.confirmRid = null; refresh(false); }
+          return;
+        }
+        state.confirmRid = null;
+        input.value = '';
+        showResultModal(res);
+      } finally {
+        setBusy(false, 'btn_food_confirm');
+      }
+    }
+
+    // --- 臨時任務 ---
+    function openTempView() {
+      const db = state.db, u = state.user;
+      if (!db || db.config.status !== 'active') { alert('目前非活動進行時間，無法回報！'); return; }
+      if (u.arrived) { alert('本隊已抵達終點，無法再新增回報。'); return; }
+      state.reportRid = FrontLogic.newRequestId(); // 每次開啟表單產生新的回報編號
+      switchView('view-report');
+    }
+
+    async function submitReport() {
+      if (state.busy) return;
+      const body = { action: 'submitReport', requestId: state.reportRid || (state.reportRid = FrontLogic.newRequestId()), type: 'temp' };
+      body.taskDetail = $('temp_task_name').value.trim();
+      if (!body.taskDetail) { alert('請輸入任務名稱！'); return; }
+      const fileInput = $('temp_photo');
+
+      setBusy(true, 'btn_submit_report');
+      try {
+        const file = fileInput.files[0] || null;
+        if (file) {
+          try {
+            body.photoBase64 = await compressImageToBase64(file);
+          } catch (e) {
+            alert('無法讀取這張照片，請改選其他照片（或不附照片送出）。');
+            return;
+          }
+        }
+        state.writeSeq++;
+        const res = await callApi(body);
+        if (res.stale) return;
+        if (!res.ok) {
+          showError(res, '回報失敗！');
+          if (res.code === 'CLOSED' || res.code === 'ARRIVED') switchView('view-dashboard');
+          return; // 保留表單內容與回報編號，修正後或網路恢復後可直接重送
+        }
+        state.reportRid = null;
+        $('temp_task_name').value = '';
+        fileInput.value = '';
+        showResultModal(res);
+      } finally {
+        setBusy(false, 'btn_submit_report');
+      }
+    }
+
+    function showResultModal(res) {
+      setText('modal_title', res.duplicate ? '此回報先前已送出' : (res.msg || '回報成功！'));
+      setText('modal_recorded_at', '伺服器記錄時間：' + (res.recordedAt || '--') + (res.duplicate ? '（不會重複計分）' : ''));
+      const warn = $('modal_photo_warning');
+      warn.classList.toggle('hidden', !res.photoFailed);
+      warn.textContent = res.photoFailed ? '⚠️ 照片上傳失敗，但回報已記錄；請另外把照片傳給總部。' : '';
+
+      const p = state.user.progress;
+      const st = p.currentStationId ? stationOf(p.currentStationId) : null;
+      if (st) {
+        fillStationCard('modal_station', st);
+      } else {
+        setText('modal_station_name', '🎉 已完成所有關卡！');
+        setText('modal_station_desc', '請前往終點集合。');
+        $('modal_station_pin').classList.add('hidden');
+        $('modal_station_map').classList.add('hidden');
+      }
+      $('modal_next_station').classList.remove('hidden');
+    }
+
+    function closeNextStationModal() {
+      $('modal_next_station').classList.add('hidden');
+      switchView('view-dashboard');
+    }
+
+    // --- 關主：本關隊伍 + 位置 ---
+    // 以下兩個函式回傳 HTML 片段；所有動態值都在原地用 esc() 跳脫（測試的靜態檢查會檢查這兩個函式）
+    function tierRadios(name, selected) {
+      return '<div class="grid grid-cols-3 gap-1.5 tier-pick">' + [3, 2, 1].map(t =>
+        '<label class="cursor-pointer"><input type="radio" class="hidden" name="' + esc(name) + '" value="' + esc(t) + '"' + (selected === t ? ' checked' : '') + '>' +
+        '<span class="block text-center text-xs font-bold border-2 border-gray-200 py-1.5">' + esc(FrontLogic.tierLabel(t)) + '</span></label>'
+      ).join('') + '</div>';
+    }
+
+    // 大地關：過關／跳過按鈕；食物關：籤種＋食物名稱表單（關主與管理員共用）
+    function stationTeamControls(st, team, scope) {
+      if (st.type === 'game') {
+        return '<div class="flex gap-1.5">' +
+          '<button data-act="station-pass" data-team="' + esc(team.id) + '" data-station="' + esc(st.id) + '" class="bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-3 py-1.5">過關</button>' +
+          '<button data-act="station-skip" data-team="' + esc(team.id) + '" data-station="' + esc(st.id) + '" class="bg-gray-200 hover:bg-gray-300 text-gray-800 text-xs font-bold px-3 py-1.5">跳過</button></div>';
+      }
+      const a = team.assignment;
+      const radio = scope + '_tier_' + team.id;
+      return '<div class="space-y-1.5 w-full">' +
+        (a ? '<p class="text-[11px] font-bold text-blue-700">已登錄：' + esc(FrontLogic.tierLabel(a.tier) + (a.foodName ? '｜' + a.foodName : '')) + '，等待隊輔確認</p>' : '') +
+        tierRadios(radio, a ? a.tier : null) +
+        '<div class="flex gap-1.5"><input type="text" maxlength="40" data-food-name="' + esc(team.id) + '" value="' + esc(a ? a.foodName : '') + '" placeholder="食物名稱（選填）" class="flex-1 min-w-0 bg-gray-50 border border-gray-300 p-1.5 text-xs">' +
+        '<button data-act="food-assign" data-team="' + esc(team.id) + '" data-station="' + esc(st.id) + '" data-radio="' + esc(radio) + '" class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5">' + (a ? '修改' : '登錄') + '</button></div></div>';
+    }
+
+    function renderMaster(fromPoll) {
+      const u = state.user, db = state.db;
+      if (!u || u.role !== 'master' || !db) return;
+      const st = stationOf(u.stationId);
+      if (!st) {
+        setText('master_station_name', '找不到負責的關卡');
+        setText('master_name_label', '請洽總部確認 Users 表中 ' + u.id + ' 的 Members 欄（應填關卡代碼，如 S1、F1）');
+        $('master_team_list').innerHTML = '';
+        return;
+      }
+      setText('master_type_badge', st.type === 'food' ? '🍽️ 食物關關主' : '🎯 大地關關主');
+      setText('master_station_name', st.name);
+      setText('master_name_label', '負責關主：' + u.name + ' (' + u.id + ')｜第 ' + st.order + ' 站');
+      $('master_cancelled').classList.toggle('hidden', !st.cancelled);
+      setText('master_teams_hint', st.type === 'food'
+        ? '隊伍抵達後，選擇抽到的籤種並登錄；隊輔會在小隊頁面上傳照片確認完成。登錄後、隊輔確認前可以修改。'
+        : '隊伍完成遊戲後按「過關」；真的無法完成時按「跳過」（0 分），隊伍會前往下一關。');
+
+      // 正在輸入食物名稱時，自動同步不重畫清單（避免打字被蓋掉）
+      const typing = fromPoll && document.activeElement && document.activeElement.closest && document.activeElement.closest('#master_team_list');
+      if (!typing) {
+        const teams = db.teamsHere || [];
+        const active = db.config.status === 'active';
+        $('master_team_list').innerHTML = !active
+          ? '<p class="py-3 text-center text-xs text-gray-500">活動進行中才能登錄</p>'
+          : teams.length ? teams.map(t =>
+              '<div class="py-2.5 space-y-1.5"><p class="text-sm font-bold text-gray-900">' + esc(t.name) + '</p>' + stationTeamControls(st, t, 'm') + '</div>'
+            ).join('')
+          : '<p class="py-3 text-center text-xs text-gray-500">目前沒有隊伍在本關</p>';
+      }
+
+      if (!fromPoll) { // 自動同步不覆蓋關主正在輸入的位置
+        $('master_loc_desc').value = st.desc;
+        $('master_map_url').value = st.mapUrl;
+      }
+      setText('master_preview_desc', '地標：' + (st.desc || '--'));
+      setText('master_preview_time', '最後更新：' + (st.updatedAt || '--'));
+      const href = FrontLogic.safeMapHref(st.mapUrl);
+      $('master_preview_map').classList.toggle('hidden', !href);
+      $('master_preview_map').href = href || '#';
+    }
+
+    // 關主頁與管理員頁共用的按鈕處理（data-act，不把資料塞進 onclick 字串，避免注入）
+    async function handleStationAction(btn, root) {
+      const act = btn.dataset.act, teamId = btn.dataset.team, stationId = btn.dataset.station;
+      const asAdmin = state.user.role === 'admin';
+      const st = stationOf(stationId);
+      const key = act + ':' + teamId + ':' + stationId;
+      if (act === 'station-pass' || act === 'station-skip') {
+        const result = act === 'station-pass' ? 'pass' : 'skip';
+        if (result === 'skip' && !confirm('確定讓這一隊跳過「' + (st ? st.name : stationId) + '」嗎？本關記 0 分。')) return;
+        const payload = { action: 'stationResult', requestId: state.opRids[key] || (state.opRids[key] = FrontLogic.newRequestId()), teamId, result };
+        if (asAdmin) payload.stationId = stationId;
+        const res = await writeOp(payload);
+        if (res && (res.ok || !['NETWORK', 'BUSY'].includes(res.code))) delete state.opRids[key];
+        if (res && res.ok) alert(res.msg);
+      } else if (act === 'food-assign') {
+        const picked = root.querySelector('input[name="' + CSS.escape(btn.dataset.radio) + '"]:checked');
+        if (!picked) { alert('請選擇抽到的籤種'); return; }
+        const nameInput = root.querySelector('input[data-food-name="' + CSS.escape(teamId) + '"]');
+        const payload = { action: 'assignFood', teamId, tier: parseInt(picked.value, 10), foodName: nameInput ? nameInput.value.trim() : '' };
+        if (asAdmin) payload.stationId = stationId;
+        const res = await writeOp(payload);
+        if (res && res.ok) alert(res.msg);
+      } else if (act === 'food-pass') {
+        if (!confirm('確定認定這一隊通過「' + (st ? st.name : stationId) + '」？（不需照片，分數照已登錄的籤種）')) return;
+        const res = await writeOp({ action: 'adminFood', subAction: 'pass', requestId: state.opRids[key] || (state.opRids[key] = FrontLogic.newRequestId()), teamId, stationId });
+        if (res && (res.ok || !['NETWORK', 'BUSY'].includes(res.code))) delete state.opRids[key];
+        if (res && res.ok) alert(res.msg);
+      } else if (act === 'food-cancel') {
+        if (!confirm('確定取消這一隊在「' + (st ? st.name : stationId) + '」已登錄的抽籤結果？')) return;
+        const res = await writeOp({ action: 'adminFood', subAction: 'cancel', teamId, stationId });
+        if (res && res.ok) alert(res.msg);
+      } else if (act === 'station-toggle') {
+        const cancel = btn.dataset.cancel === '1';
+        let msg = cancel
+          ? '確定取消「' + st.name + '」嗎？所有隊伍會直接跳過這一關（已完成的隊伍保留分數）。'
+          : '確定恢復「' + st.name + '」嗎？';
+        if (!cancel) {
+          const pulled = affectedByRestore(stationId);
+          if (pulled.length) msg += '\n\n⚠️ 以下隊伍已越過這一關，恢復後會被拉回來補做：\n' + pulled.join('、');
+        }
+        if (!confirm(msg)) return;
+        const res = await writeOp({ action: 'setStationStatus', stationId, status: cancel ? 'cancelled' : 'active' });
+        if (res && res.ok) alert(res.msg);
+      }
+    }
+
+    // 恢復一個已取消的大地關時，會被拉回補做的隊伍（尚未抵達、沒有該關紀錄、且目前已在更後面的關卡或已完成）
+    function affectedByRestore(stationId) {
+      const db = state.db;
+      const target = stationOf(stationId);
+      return Object.values(db.users).filter(u => u.role === 'team' && !u.arrived).filter(u => {
+        const me = u.progress.stations.find(s => s.id === stationId);
+        if (!me || me.state !== 'cancelled') return false;
+        const cur = u.progress.currentStationId ? stationOf(u.progress.currentStationId) : null;
+        return !cur || cur.order > target.order;
+      }).map(u => u.name);
+    }
+
+    async function writeOp(payload) {
+      if (state.busy) return null;
+      setBusy(true);
+      state.writeSeq++;
+      const res = await callApi(payload);
+      setBusy(false);
+      if (res.stale) return res;
+      if (res.ok) renderCurrent(false);
+      else showError(res);
+      return res;
+    }
+
+    $('view-master').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-act]');
+      if (btn && !btn.disabled) handleStationAction(btn, $('view-master'));
+    });
+
+    function setMasterStatus(msg, isError) {
+      const el = $('master_gps_status');
+      el.textContent = msg;
+      el.className = 'text-[11px] ' + (isError ? 'text-red-600 font-bold' : 'text-gray-600');
+      el.classList.toggle('hidden', !msg);
+    }
+
+    function showVerifyLink(url) {
+      const href = FrontLogic.safeMapHref(url);
+      $('master_verify_link').classList.toggle('hidden', !href);
+      $('master_verify_link').href = href || '#';
+    }
+
+    function getGPSLocation() {
+      if (!navigator.geolocation) {
+        setMasterStatus('您的瀏覽器不支援 GPS 定位，請改用「貼上分享連結」。', true);
+        return;
+      }
+      setMasterStatus('定位中…（第一次使用需允許定位權限）');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude.toFixed(6);
+          const lng = pos.coords.longitude.toFixed(6);
+          const acc = Math.round(pos.coords.accuracy);
+          const url = 'https://www.google.com/maps?q=' + lat + ',' + lng;
+          $('master_map_url').value = url;
+          showVerifyLink(url);
+          setMasterStatus('📍 已帶入座標 (' + lat + ', ' + lng + ')，誤差約 ±' + acc + ' 公尺' +
+            (acc > 50 ? '。誤差較大，建議到空曠處重試，或改用「貼上分享連結」。' : '。請按下方連結確認位置，再按「立即同步」。'), acc > 50);
+        },
+        (err) => setMasterStatus(err && err.code === 1
+          ? '定位權限被拒絕，請到瀏覽器設定允許定位，或改用「貼上分享連結」。'
+          : '無法取得定位（訊號不佳或逾時），請重試或改用「貼上分享連結」。', true),
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    }
+
+    async function pasteMapLink() {
+      let text = '';
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) text = (await navigator.clipboard.readText()).trim();
+      } catch (e) { text = ''; }
+      if (!text) {
+        $('master_map_url').focus();
+        setMasterStatus('無法自動讀取剪貼簿，請在網址欄長按 →「貼上」。');
+        return;
+      }
+      const match = text.match(/https:\/\/\S+/); // 分享內容可能夾帶地點名稱，只取網址部分
+      const url = match ? match[0] : text;
+      if (!CoreApi.isAllowedMapUrl(url)) {
+        setMasterStatus('剪貼簿內容不是 Google Maps 連結，請在 Google Maps「分享」→「複製連結」後再試。', true);
+        return;
+      }
+      $('master_map_url').value = url;
+      showVerifyLink(url);
+      setMasterStatus('已貼上地圖連結，請確認後按「立即同步」。');
+    }
+
+    async function updateStationLocation() {
+      if (state.busy) return;
+      const desc = $('master_loc_desc').value.trim();
+      const mapUrl = $('master_map_url').value.trim();
+      if (!desc) { alert('請填寫位置地標描述！'); return; }
+      if (!CoreApi.isAllowedMapUrl(mapUrl)) { alert(CoreApi.MSG.MAP_URL); return; }
+      setBusy(true, 'btn_update_station');
+      state.writeSeq++;
+      const res = await callApi({ action: 'updateStation', desc, mapUrl });
+      setBusy(false, 'btn_update_station');
+      if (res.stale) return;
+      if (res.ok) {
+        renderMaster(false);
+        setMasterStatus('');
+        alert('✅ 關卡位置與地圖已同步更新！');
+      } else {
+        showError(res, '更新失敗');
+      }
+    }
+
+    // --- 管理員後台 ---
+    function teamsOf(db) {
+      return Object.values(db.users).filter(u => u.role === 'team');
+    }
+
+    function renderAdmin() {
+      const u = state.user, db = state.db;
+      if (!u || u.role !== 'admin' || !db || !db.standings) return;
+      const cfg = db.config;
+      const badge = $('admin_event_badge');
+      const BADGE = {
+        pending: ['未開始', 'bg-amber-100 text-amber-800'],
+        active: ['進行中', 'bg-green-100 text-green-800'],
+        ended: ['已結束 (鎖定回報)', 'bg-red-100 text-red-800']
+      }[cfg.status];
+      badge.textContent = BADGE[0];
+      badge.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full ' + BADGE[1];
+      setText('admin_start_time', cfg.startTime || '尚未記錄');
+      setText('admin_end_time', cfg.endTime || '尚未記錄');
+      setText('admin_credit', cfg.creditPerPoint);
+      setText('admin_penalty_min', cfg.penaltyMinutes);
+      $('btn_start_event').disabled = cfg.status === 'active';
+      $('btn_end_event').disabled = cfg.status !== 'active';
+      setText('btn_start_label', cfg.status === 'ended' ? '重新開放回報' : '開始活動');
+      $('admin_reset_live_warning').classList.toggle('hidden', cfg.status !== 'active');
+
+      renderAdminStations(db);
+      renderArrivals(db);
+      renderLeaderboard(db);
+      renderAdminLogs();
+
+      const resetSelect = $('reset_user_select');
+      const keep = resetSelect.value;
+      resetSelect.innerHTML = Object.values(db.users).filter(x => x.role !== 'admin')
+        .map(x => '<option value="' + esc(x.id) + '">' + esc(x.id + ' - ' + x.name) + '</option>').join('');
+      if (keep) resetSelect.value = keep;
+    }
+
+    function renderAdminStations(db) {
+      const box = $('admin_station_list');
+      if (box.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return; // 正在輸入時不重畫
+      const active = db.config.status === 'active';
+      box.innerHTML = db.stations.map(st => {
+        const teams = (db.teamsAt && db.teamsAt[st.id]) || [];
+        const head = '<div class="flex items-center justify-between gap-2">' +
+          '<p class="text-sm font-black ' + (st.cancelled ? 'text-gray-400 line-through' : 'text-gray-900') + '">' + esc(st.order + '. ' + (st.type === 'food' ? '🍽️ ' : '🎯 ') + st.name) + '</p>' +
+          (st.type === 'game'
+            ? '<button data-act="station-toggle" data-station="' + esc(st.id) + '" data-cancel="' + (st.cancelled ? '0' : '1') + '" class="shrink-0 text-[11px] font-bold px-2 py-1 ' + (st.cancelled ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200') + '">' + (st.cancelled ? '恢復本關' : '取消本關') + '</button>'
+            : '') + '</div>';
+        const rows = st.cancelled
+          ? '<p class="text-[11px] text-gray-400">已取消，隊伍直接跳過</p>'
+          : teams.length ? teams.map(t =>
+              '<div class="bg-white p-2 space-y-1.5 border border-gray-100"><p class="text-xs font-bold text-gray-800">' + esc(t.name) + '</p>' +
+              (active ? stationTeamControls(st, t, 'a') + (st.type === 'food' && t.assignment
+                ? '<div class="flex gap-1.5"><button data-act="food-pass" data-team="' + esc(t.id) + '" data-station="' + esc(st.id) + '" class="flex-1 bg-zinc-800 text-white text-[11px] font-bold py-1.5">認定 PASS（免照片）</button>' +
+                  '<button data-act="food-cancel" data-team="' + esc(t.id) + '" data-station="' + esc(st.id) + '" class="flex-1 bg-gray-200 text-gray-800 text-[11px] font-bold py-1.5">取消登錄</button></div>'
+                : '') : '') + '</div>'
+            ).join('')
+          : '<p class="text-[11px] text-gray-400">目前沒有隊伍在這一關</p>';
+        return '<div class="bg-gray-50 p-3 space-y-2">' + head + rows + '</div>';
+      }).join('');
+    }
+
+    function renderArrivals(db) {
+      const canSet = db.config.status !== 'pending';
+      $('admin_arrival_list').innerHTML = teamsOf(db).map(t => {
+        const right = t.arrivalTime
+          ? '<span class="font-mono font-bold text-green-700">🏁 ' + esc(FrontLogic.timeOf(t.arrivalTime)) + '</span>' +
+            '<button data-act="arrival-clear" data-team="' + esc(t.id) + '" class="ml-2 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold px-2.5 py-1">清除</button>'
+          : '<button data-act="arrival-set" data-team="' + esc(t.id) + '"' + (canSet ? '' : ' disabled') + ' class="bg-green-600 hover:bg-green-700 text-white font-bold px-2.5 py-1">登錄抵達</button>';
+        return '<div class="flex items-center justify-between py-2 text-xs"><span class="font-bold text-gray-900">' + esc(t.name) +
+          '<span class="ml-1 font-normal text-gray-500">' + esc('（' + t.progress.completed + '/' + t.progress.total + ' 關）') + '</span></span><span>' + right + '</span></div>';
+      }).join('');
+
+      const sel = $('arrival_team_select');
+      const keep = sel.value;
+      sel.innerHTML = teamsOf(db).filter(t => !t.arrivalTime).map(t => '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>').join('') ||
+        '<option value="">（全部已抵達）</option>';
+      if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+      const timeInput = $('arrival_manual_time');
+      if (!timeInput.value && db.config.startTime) {
+        const now = new Date();
+        const hh = String(now.getHours()).padStart(2, '0'), mm = String(now.getMinutes()).padStart(2, '0');
+        timeInput.value = db.config.startTime.slice(0, 10) + 'T' + hh + ':' + mm;
+      }
+    }
+
+    function renderLeaderboard(db) {
+      const st = db.standings;
+      const ranked = st.teams.filter(t => t.rank !== null);
+      const unranked = st.teams.filter(t => t.rank === null);
+      const credit = db.config.creditPerPoint;
+      const row = (t) => {
+        const top = t.rank !== null && t.rank <= 3;
+        const detail = t.rank !== null
+          ? '經過 ' + t.elapsedMinutes + ' − ' + t.score + '分×' + credit + ' + 罰 ' + t.penalty
+          : '未抵達｜積分 ' + t.score + '｜罰 ' + t.penalty + 'm';
+        return '<tr class="' + (t.rank === 1 ? 'bg-blue-50' : 'bg-white') + '">' +
+          '<td class="px-3 py-3 font-black whitespace-nowrap ' + (top ? 'text-blue-600' : 'text-gray-500') + '">' + esc(FrontLogic.rankLabel(t.rank)) +
+            (t.tie ? '<div class="text-[10px] font-bold text-red-600 whitespace-normal">並列・待總召裁定</div>' : '') + '</td>' +
+          '<td class="px-3 py-3"><p class="font-bold text-gray-900">' + esc(t.name) + '</p>' +
+            '<p class="text-[11px] text-gray-500">' + esc(detail) + '</p>' +
+            '<p class="text-[11px] text-gray-500">天堂 ' + t.heavenCount + '｜地獄 ' + t.hellCount + '｜關卡 ' + t.completed + '/' + t.total +
+            '｜人數 ' + t.memberCount + (t.usedVehicle ? '｜🛴代步' : '') + '</p></td>' +
+          '<td class="px-3 py-3 text-right whitespace-nowrap">' + (t.rank !== null
+            ? '<span class="font-mono font-bold text-base text-gray-800">' + t.finalTime + '</span><span class="text-xs text-gray-500">m</span>'
+            : '<span class="text-xs font-bold text-gray-400">未完成</span>') + '</td></tr>';
+      };
+      $('admin_leaderboard').innerHTML = (ranked.length ? ranked.map(row).join('') : '<tr><td colspan="3" class="px-3 py-4 text-center text-xs text-gray-500">尚無隊伍抵達</td></tr>') +
+        unranked.map(row).join('');
+
+      const suf = st.sufferer;
+      if (!suf.teams.length) {
+        setText('admin_sufferer', '從缺');
+        setText('admin_sufferer_detail', '前三名以外、有地獄籤的已抵達隊伍：無');
+      } else {
+        setText('admin_sufferer', suf.teams.map(t => t.name).join('、'));
+        const t0 = suf.teams[0];
+        const r0 = (st.teams.find(t => t.id === t0.id) || {}).rank;
+        setText('admin_sufferer_detail', '第 ' + r0 + ' 名｜地獄籤 ' + t0.hellCount + ' 張' + (t0.allHell ? '（三關全地獄）' : '') + '｜結算 ' + t0.finalTime + ' 分鐘' + (suf.tie ? '｜並列・待總召裁定' : ''));
+      }
+      setText('admin_hell_king', st.hellKing ? st.hellKing.name : '尚無紀錄');
+      setText('admin_hell_count', st.hellKing ? '累計吃下 ' + st.hellKing.count + ' 次地獄籤' : '無');
+    }
+
+    function renderAdminLogs() {
+      const db = state.db;
+      if (!db || !state.user || state.user.role !== 'admin') return;
+      const filterEl = $('admin_log_filter');
+      const keep = filterEl.value || 'ALL';
+      filterEl.innerHTML = '<option value="ALL">全部小隊</option>' + teamsOf(db).map(t => '<option value="' + esc(t.id) + '">' + esc(t.name) + '</option>').join('');
+      filterEl.value = [...filterEl.options].some(o => o.value === keep) ? keep : 'ALL';
+      const names = {};
+      teamsOf(db).forEach(t => { names[t.id] = t.name; });
+      const logs = db.logs.filter(l => filterEl.value === 'ALL' || l.teamId === filterEl.value).slice().reverse();
+      $('admin_log_list').innerHTML = logs.length ? logs.map(l => {
+        const d = FrontLogic.describeLog(l, db.stations);
+        const photo = FrontLogic.safePhotoHref(l.photoUrl);
+        return '<div class="py-2 flex items-start gap-2 ' + (l.voided ? 'opacity-50' : '') + '">' +
+          '<span class="text-base leading-none mt-0.5">' + esc(d.icon) + '</span>' +
+          '<div class="flex-1 min-w-0">' +
+            '<p class="font-bold text-gray-900 ' + (l.voided ? 'line-through' : '') + '">' + esc(d.title) + ' <span class="text-blue-600">' + esc(d.value) + '</span></p>' +
+            '<p class="text-[11px] text-gray-500 truncate">' + esc((names[l.teamId] || l.teamId) + '｜' + FrontLogic.timeOf(l.timestamp) + (d.sub ? '｜' + d.sub : '') + (l.recordedBy ? '｜登錄：' + l.recordedBy : '')) + '</p>' +
+            (photo ? '<a href="' + esc(photo) + '" target="_blank" rel="noopener noreferrer" class="text-[11px] text-blue-600 font-bold underline">查看照片</a>' : '') +
+            (l.voided ? '<span class="ml-1 text-[10px] font-bold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">已作廢</span>' : '') +
+          '</div>' +
+          '<button data-act="void" data-rid="' + esc(l.requestId) + '" data-void="' + (l.voided ? '0' : '1') + '" class="shrink-0 font-bold px-2 py-1 ' + (l.voided ? 'bg-gray-200 text-gray-800' : 'bg-red-50 text-red-700 border border-red-200') + '">' + (l.voided ? '恢復' : '作廢') + '</button>' +
+        '</div>';
+      }).join('') : '<p class="py-3 text-center text-gray-500">尚無回報紀錄</p>';
+    }
+
+    $('view-admin').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn || btn.disabled) return;
+      const act = btn.dataset.act;
+      if (act === 'arrival-set') adminArrival('set', btn.dataset.team);
+      else if (act === 'arrival-clear') adminArrival('clear', btn.dataset.team);
+      else if (act === 'arrival-manual') adminArrival('set', $('arrival_team_select').value, $('arrival_manual_time').value);
+      else if (act === 'void') voidLog(btn.dataset.rid, btn.dataset.void === '1');
+      else handleStationAction(btn, $('view-admin'));
+    });
+
+    async function controlEvent(subAction) {
+      const cfg = state.db && state.db.config;
+      if (subAction === 'end' && !confirm('確定要結束活動嗎？結束後所有小隊將無法再送出回報！')) return;
+      if (subAction === 'start' && cfg && cfg.status === 'ended' && !confirm('活動已結束，確定要重新開放回報嗎？（開始時間不變）')) return;
+      await writeOp({ action: 'adminControl', subAction });
+    }
+
+    async function adminArrival(subAction, teamId, time) {
+      if (!teamId) { alert('請選擇小隊'); return; }
+      const t = teamsOf(state.db).find(x => x.id === teamId);
+      const name = t ? t.name : teamId;
+      if (subAction === 'clear' && !confirm('確定要清除「' + name + '」的抵達紀錄嗎？')) return;
+      if (time !== undefined && !time) { alert('請輸入抵達時間'); return; }
+      const payload = { action: 'adminArrival', subAction, teamId };
+      if (time) payload.time = time;
+      const res = await writeOp(payload);
+      if (res && res.ok && time) $('arrival_manual_time').value = '';
+    }
+
+    async function voidLog(requestId, makeVoid) {
+      if (makeVoid && !confirm('確定要作廢這筆紀錄嗎？作廢後不計入分數與名次（可再恢復）；若是關卡紀錄，該隊會回到那一關。')) return;
+      await writeOp({ action: 'voidLog', requestId, void: makeVoid });
+    }
+
+    async function adminResetPassword() {
+      const targetId = $('reset_user_select').value;
+      const newPwd = $('reset_new_pwd').value.trim();
+      if (!/^\S{4,32}$/.test(newPwd)) { alert('新密碼需為 4–32 個字元，且不可包含空白。'); return; }
+      if (!confirm('確定要將 ' + targetId + ' 的密碼重置為「' + newPwd + '」嗎？')) return;
+      const res = await writeOp({ action: 'resetPassword', targetId, newPwd });
+      if (res && res.ok) {
+        $('reset_new_pwd').value = '';
+        alert(res.msg);
+      }
+    }
+
+    // 一鍵重置活動資料：必須輸入「重置」；活動進行中再多一次確認。後端也會檢查確認文字。
+    async function adminResetEvent() {
+      const input = $('admin_reset_confirm');
+      const typed = input.value;
+      if (typed !== '重置') { alert('請在欄位中輸入「重置」兩個字（不含空白）才能執行。'); input.focus(); return; }
+      const live = state.db && state.db.config.status === 'active';
+      const msg = (live ? '⚠️ 活動正在進行中！\n\n' : '') +
+        '確定要重置全部活動資料嗎？此操作無法復原。\n\n會清除：所有回報紀錄、籤種登錄、抵達時間、取消的大地關、活動狀態。\n會保留：帳號、密碼、隊名、成員、關卡、位置、計分設定。';
+      if (!confirm(msg)) return;
+      const res = await writeOp({ action: 'resetEvent', confirm: typed });
+      if (res && res.ok) {
+        input.value = '';
+        alert(res.msg + '\n\n已抵達終點的小隊手機已停止自動同步，請通知他們按「重新整理」。');
+      }
+    }
+
+    // --- 啟動 ---
+    (async function boot() {
+      if (!isLiveMode()) {
+        $('login_hint').classList.remove('hidden');
+        $('mock_banner').classList.remove('hidden');
+      }
+      $('login_pwd').addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLogin(); });
+      const saved = loadAuth();
+      if (saved) {
+        $('login_code').value = saved.code;
+        const epoch = session.next();
+        const res = await callApi({ action: 'login', code: saved.code, pwd: saved.pwd });
+        if (!session.isStale(epoch)) {
+          if (res.ok && res.user) {
+            state.auth = saved;
+            enterApp();
+          } else if (res.code === 'AUTH') {
+            clearAuth();
+            showLoginError('密碼已變更或登入已失效，請重新登入。');
+          } else {
+            showLoginError(res.msg || NETWORK_MSG);
+          }
+        }
+      }
+      document.documentElement.dataset.appReady = '1';
+    })();
+  </script>
+</body>
+</html>
